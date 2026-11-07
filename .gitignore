@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+.omc/
