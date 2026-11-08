@@ -63,6 +63,8 @@ class ScheduleControllerTest {
 				.andExpect(jsonPath("$.installments[0].agreementId").value("CONV01"))
 				.andExpect(jsonPath("$.installments[0].deductionDate").value("2026-01-10"))
 				.andExpect(jsonPath("$.installments[0].status").value("OPEN"))
+				.andExpect(jsonPath("$.installments[0].eligible").value(true))
+				.andExpect(jsonPath("$.installments[1].eligible").value(true))
 				.andExpect(content().string(containsString("\"amount\":150.00")))
 				.andExpect(content().string(containsString("\"amount\":150.10")));
 		assertThat(CentralConveniosStub.lastRequest().path()).isEqualTo("/beneficiarios/BEN001/agenda");
