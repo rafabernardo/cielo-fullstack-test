@@ -5,6 +5,7 @@ import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -12,6 +13,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.portabilidade.backend.domain.PortabilityOperation;
 import com.portabilidade.backend.domain.PortabilityOperationStatus;
+import com.portabilidade.backend.domain.PortabilityOperationStatusChanged;
 import com.portabilidade.backend.exception.CentralConveniosException;
 import com.portabilidade.backend.integration.centralconvenios.CentralConveniosGateway;
 import com.portabilidade.backend.integration.centralconvenios.CentralPortabilityResult;
@@ -32,14 +34,16 @@ public class PortabilityStatusService {
 	private final InstallmentLockRepository installmentLockRepository;
 	private final CentralConveniosGateway centralConveniosGateway;
 	private final TransactionTemplate transaction;
+	private final ApplicationEventPublisher events;
 
 	public PortabilityStatusService(PortabilityOperationRepository operationRepository,
 			InstallmentLockRepository installmentLockRepository, CentralConveniosGateway centralConveniosGateway,
-			TransactionTemplate transaction) {
+			TransactionTemplate transaction, ApplicationEventPublisher events) {
 		this.operationRepository = operationRepository;
 		this.installmentLockRepository = installmentLockRepository;
 		this.centralConveniosGateway = centralConveniosGateway;
 		this.transaction = transaction;
+		this.events = events;
 	}
 
 	// ponytail: checks due operations sequentially each tick; page or parallelize if volume grows.
@@ -87,9 +91,13 @@ public class PortabilityStatusService {
 				if (!isStillTheCheckedSubmission(current, checked.getProtocol())) {
 					return;
 				}
+				var statusBefore = current.getStatus();
 				change.accept(current);
 				if (releaseInstallments) {
 					installmentLockRepository.deleteByOperationId(current.getId());
+				}
+				if (current.getStatus() != statusBefore) {
+					events.publishEvent(new PortabilityOperationStatusChanged(current.getId()));
 				}
 			});
 		} catch (OptimisticLockingFailureException e) {

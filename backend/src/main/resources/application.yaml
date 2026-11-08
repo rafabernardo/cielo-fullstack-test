@@ -1,6 +1,10 @@
 spring:
   application:
     name: backend
+  mvc:
+    async:
+      # Lifetime of an SSE stream; the browser's EventSource reconnects and receives the current status again.
+      request-timeout: 60s
 
 central-convenios:
   base-url: http://localhost:4000

@@ -5,6 +5,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -14,6 +15,7 @@ import com.portabilidade.backend.domain.DestinationAccount;
 import com.portabilidade.backend.domain.Installment;
 import com.portabilidade.backend.domain.InstallmentLock;
 import com.portabilidade.backend.domain.PortabilityOperation;
+import com.portabilidade.backend.domain.PortabilityOperationStatusChanged;
 import com.portabilidade.backend.exception.CentralConveniosException;
 import com.portabilidade.backend.exception.IdempotencyKeyReusedException;
 import com.portabilidade.backend.exception.InstallmentInOperationException;
@@ -41,15 +43,18 @@ public class PortabilityOperationService {
 	private final ScheduleService scheduleService;
 	private final CentralConveniosGateway centralConveniosGateway;
 	private final TransactionTemplate transaction;
+	private final ApplicationEventPublisher events;
 
 	public PortabilityOperationService(PortabilityOperationRepository operationRepository,
 			InstallmentLockRepository installmentLockRepository, ScheduleService scheduleService,
-			CentralConveniosGateway centralConveniosGateway, TransactionTemplate transaction) {
+			CentralConveniosGateway centralConveniosGateway, TransactionTemplate transaction,
+			ApplicationEventPublisher events) {
 		this.operationRepository = operationRepository;
 		this.installmentLockRepository = installmentLockRepository;
 		this.scheduleService = scheduleService;
 		this.centralConveniosGateway = centralConveniosGateway;
 		this.transaction = transaction;
+		this.events = events;
 	}
 
 	public Creation create(UUID idempotencyKey, String beneficiaryId, List<String> installmentIds,
@@ -95,6 +100,7 @@ public class PortabilityOperationService {
 			operation = transaction.execute(status -> {
 				var failed = get(operationId);
 				failed.retry();
+				events.publishEvent(new PortabilityOperationStatusChanged(operationId));
 				return lock(operationRepository.saveAndFlush(failed));
 			});
 		} catch (OptimisticLockingFailureException e) {
@@ -145,6 +151,7 @@ public class PortabilityOperationService {
 			transaction.executeWithoutResult(status -> {
 				get(operation.getId()).fail();
 				installmentLockRepository.deleteByOperationId(operation.getId());
+				events.publishEvent(new PortabilityOperationStatusChanged(operation.getId()));
 			});
 			throw e;
 		}

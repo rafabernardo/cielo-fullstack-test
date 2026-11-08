@@ -3,6 +3,7 @@ package com.portabilidade.backend.controller;
 import java.util.UUID;
 
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import com.portabilidade.backend.dto.CreatePortabilityOperationRequest;
@@ -24,9 +26,12 @@ import jakarta.validation.Valid;
 public class PortabilityOperationController {
 
 	private final PortabilityOperationService portabilityOperationService;
+	private final PortabilityOperationStream portabilityOperationStream;
 
-	public PortabilityOperationController(PortabilityOperationService portabilityOperationService) {
+	public PortabilityOperationController(PortabilityOperationService portabilityOperationService,
+			PortabilityOperationStream portabilityOperationStream) {
 		this.portabilityOperationService = portabilityOperationService;
+		this.portabilityOperationStream = portabilityOperationStream;
 	}
 
 	@PostMapping
@@ -50,6 +55,11 @@ public class PortabilityOperationController {
 			response.header(HttpHeaders.RETRY_AFTER, String.valueOf(operation.secondsUntilNextCheck()));
 		}
 		return response.body(PortabilityOperationResponse.from(operation));
+	}
+
+	@GetMapping(path = "/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+	public SseEmitter events(@PathVariable UUID id) {
+		return portabilityOperationStream.subscribe(id);
 	}
 
 }
