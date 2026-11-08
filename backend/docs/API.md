@@ -6,16 +6,19 @@ timestamps are ISO-8601 `Instant`s (UTC); dates are `yyyy-MM-dd`; money is a dec
 With the backend running, the generated OpenAPI spec is at `http://localhost:8080/v3/api-docs` and Swagger UI at
 `http://localhost:8080/swagger-ui.html`. This document stays the reference for error codes and duplicate rules.
 
-| Method | Path                                         | Purpose                                         |
-|--------|----------------------------------------------|-------------------------------------------------|
-| `POST` | `/api/authorizations`                        | Register a beneficiary's authorization          |
-| `GET`  | `/api/beneficiaries/{beneficiaryId}/schedule`| List the beneficiary's installments             |
-| `POST` | `/api/portability-operations`                | Request portability of installments            |
-| `GET`  | `/api/portability-operations/{id}`           | Read an operation's status                      |
-| `GET`  | `/api/portability-operations/{id}/events`    | Stream an operation's status changes (SSE)      |
+| Method | Path                                                       | Purpose                                    |
+|--------|------------------------------------------------------------|--------------------------------------------|
+| `POST` | `/api/authorizations`                                      | Register a beneficiary's authorization     |
+| `GET`  | `/api/beneficiaries/{beneficiaryId}/authorization`         | Check whether a beneficiary is authorized  |
+| `GET`  | `/api/beneficiaries/{beneficiaryId}/schedule`              | List the beneficiary's installments        |
+| `GET`  | `/api/beneficiaries/{beneficiaryId}/portability-operations`| List the beneficiary's operations (paged)  |
+| `POST` | `/api/portability-operations`                              | Request portability of installments        |
+| `GET`  | `/api/portability-operations/{id}`                         | Read an operation's status                 |
+| `GET`  | `/api/portability-operations/{id}/events`                  | Stream an operation's status changes (SSE) |
 
-Typical flow: create an authorization → read the schedule → create a portability operation with the eligible
-installments → follow it via `GET /{id}` (honouring `Retry-After`) or `/{id}/events` until it leaves `PENDING`.
+Typical flow: check the authorization (create it if missing) → read the schedule → create a portability operation with
+the eligible installments → follow it via `GET /{id}` (honouring `Retry-After`) or `/{id}/events` until it leaves
+`PENDING`. Past operations are listed per beneficiary.
 
 ---
 
@@ -49,6 +52,21 @@ schedule can be read.
 
 ---
 
+## `GET /api/beneficiaries/{beneficiaryId}/authorization`
+
+Tells whether the beneficiary has an authorization stored locally. The Central is not called, so this read never fails
+because of it.
+
+**Response `200 OK`**
+
+```json
+{ "beneficiaryId": "12345678900", "authorized": true }
+```
+
+An unknown beneficiary answers `"authorized": false`, not `404`.
+
+---
+
 ## `GET /api/beneficiaries/{beneficiaryId}/schedule`
 
 Reads the beneficiary's future payroll deductions from the Central and marks which ones can be selected.
@@ -65,7 +83,17 @@ Reads the beneficiary's future payroll deductions from the Central and marks whi
       "amount": 350.00,
       "deductionDate": "2026-12-05",
       "status": "OPEN",
-      "eligible": true
+      "eligible": true,
+      "heldBy": null
+    },
+    {
+      "installmentId": "INS-2",
+      "agreementId": "AGR-9",
+      "amount": 350.00,
+      "deductionDate": "2027-01-05",
+      "status": "OPEN",
+      "eligible": false,
+      "heldBy": { "operationId": "0b8e7a52-2a1c-4c39-8f7e-3f2a9a1d4e11", "status": "PENDING" }
     }
   ]
 }
@@ -74,7 +102,8 @@ Reads the beneficiary's future payroll deductions from the Central and marks whi
 | Field      | Meaning                                                                                   |
 |------------|-------------------------------------------------------------------------------------------|
 | `status`   | `OPEN`                                                                                     |
-| `eligible` | `true` when `OPEN` and not held by a `PENDING` or `CONFIRMED` portability operation        |
+| `eligible` | `true` when `OPEN` and `heldBy` is `null`                                                  |
+| `heldBy`   | The `PENDING` or `CONFIRMED` operation holding the installment (`operationId`, `status`), or `null` |
 
 **Errors:** `422 AUTHORIZATION_REQUIRED` (no authorization registered for the beneficiary),
 `502 CENTRAL_CONVENIOS_BAD_RESPONSE`, `503 CENTRAL_CONVENIOS_UNAVAILABLE`.
@@ -99,7 +128,7 @@ Creates a portability operation and submits it to the Central. The outcome is as
 | Field                              | Type     | Rules                                                     |
 |------------------------------------|----------|-----------------------------------------------------------|
 | `beneficiaryId`                    | string   | not blank                                                 |
-| `installmentIds`                   | string[] | not empty, no blank items, no duplicates                  |
+| `installmentIds`                   | string[] | required, no blank items, no duplicates; empty only when the schedule is empty |
 | `destinationAccount.bankCode`      | string   | exactly 3 digits                                          |
 | `destinationAccount.branch`        | string   | exactly 4 digits                                          |
 | `destinationAccount.accountNumber` | string   | 1–12 digits, optional `-` check digit (`0-9`, `X`, `x`)   |
@@ -130,7 +159,7 @@ creates a new operation.
 | `409`  | `INSTALLMENT_IN_PENDING_OPERATION`   | Installments held by a `PENDING` operation; `installmentIds` lists them, `operationIds` the holders |
 | `409`  | `INSTALLMENT_IN_CONFIRMED_OPERATION` | Installments held by a `CONFIRMED` operation; wins over pending, listing only the confirmed ones   |
 | `422`  | `AUTHORIZATION_REQUIRED`         | No authorization registered for the beneficiary                                          |
-| `422`  | `INSTALLMENT_NOT_ELIGIBLE`       | Installments missing from the schedule or not `OPEN`; `installmentIds` lists them        |
+| `422`  | `INSTALLMENT_NOT_ELIGIBLE`       | Installments missing from the schedule or not `OPEN`; `installmentIds` lists them. Also an empty `installmentIds` while the schedule has installments |
 | `502`  | `CENTRAL_CONVENIOS_BAD_RESPONSE` | Central answered unexpectedly                                                            |
 | `503`  | `CENTRAL_CONVENIOS_UNAVAILABLE`  | Central unreachable or timed out                                                         |
 
@@ -147,6 +176,30 @@ Returns the operation's current state. Status changes come from the background f
 `Retry-After: <seconds>` (≥ 1), when the next check against the Central is due; poll again after it.
 
 **Errors:** `400` (`id` not a UUID), `404 PORTABILITY_OPERATION_NOT_FOUND`.
+
+---
+
+## `GET /api/beneficiaries/{beneficiaryId}/portability-operations`
+
+Lists the beneficiary's operations, newest first (`createdAt`, then `id`, descending). Reads local data only.
+
+| Query  | Default | Rules                                  |
+|--------|---------|----------------------------------------|
+| `page` | `0`     | zero-based                             |
+| `size` | `5`     | capped at `20`                         |
+| `sort` |         | ignored; the order is always newest first |
+
+**Response `200 OK`**
+
+```json
+{
+  "content": [ { "id": "0b8e7a52-…", "status": "PENDING", "…": "…" } ],
+  "page": { "size": 5, "number": 0, "totalElements": 1, "totalPages": 1 }
+}
+```
+
+Each `content` item is a [portability operation](#portability-operation). An unknown beneficiary answers an empty page,
+not `404`.
 
 ---
 
