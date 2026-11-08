@@ -145,9 +145,9 @@ class PortabilityOperationControllerTest {
 		var badAccount = create("{\"beneficiaryId\":\"BEN001\",\"installmentIds\":[\"P001\"],"
 				+ "\"destinationAccount\":{\"bankCode\":\"1\",\"branch\":\"12a4\",\"accountNumber\":\"\"}}");
 
-		empty.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
-				.andExpect(jsonPath("$.errors.installmentIds").isNotEmpty());
+		// Empty is only allowed when the schedule is empty too.
+		empty.andExpect(status().isUnprocessableContent())
+				.andExpect(jsonPath("$.code").value("INSTALLMENT_NOT_ELIGIBLE"));
 		duplicated.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.errors.installmentIdsUnique").isNotEmpty());
 		badAccount.andExpect(status().isBadRequest())
@@ -204,6 +204,24 @@ class PortabilityOperationControllerTest {
 				.extracting(operation -> operation.getStatus()).isEqualTo(PortabilityOperationStatus.FAILED);
 		assertThat(installmentLockRepository.count()).isZero();
 		schedule().andExpect(jsonPath("$.installments[0].eligible").value(true));
+	}
+
+	// The simulator's BEN_ERRO has no agenda and only fails on submission: an empty request must reach the Central.
+	@Test
+	void submitsEmptyRequestWhenScheduleIsEmptySoCentralUnavailabilityReachesUser() throws Exception {
+		authorizationRepository.save(new Authorization("BEN_ERRO", "central-BEN_ERRO"));
+		CentralConveniosStub.respondTo("GET", "/beneficiarios/BEN_ERRO/agenda", 200, "[]");
+		CentralConveniosStub.respondTo("POST", SUBMIT_PATH, 503, UNAVAILABLE);
+
+		var result = create("{\"beneficiaryId\":\"BEN_ERRO\",\"installmentIds\":[],\"destinationAccount\":" + ACCOUNT
+				+ "}");
+
+		result.andExpect(status().isServiceUnavailable())
+				.andExpect(jsonPath("$.code").value("CENTRAL_CONVENIOS_UNAVAILABLE"));
+		assertThat(submissions()).singleElement().extracting(ReceivedRequest::body).asString()
+				.contains("\"beneficiarioId\":\"BEN_ERRO\",\"parcelaIds\":[]");
+		assertThat(operationRepository.findAll()).singleElement()
+				.extracting(operation -> operation.getStatus()).isEqualTo(PortabilityOperationStatus.FAILED);
 	}
 
 	@Test

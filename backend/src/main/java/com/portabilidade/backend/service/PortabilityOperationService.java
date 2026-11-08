@@ -90,10 +90,15 @@ public class PortabilityOperationService {
 				PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST));
 	}
 
-	// Rejects ids missing from the schedule or not open (422) before ids taken by another operation (409).
+	// Rejects ids missing from the schedule or not open (422) before ids taken by another operation (409). An empty
+	// request is accepted only for an empty schedule, so the Central still answers it (the simulator's BEN_ERRO has
+	// no agenda and only fails on submission).
 	private void requireSelectable(String beneficiaryId, List<String> installmentIds) {
 		var schedule = scheduleService.getSchedule(beneficiaryId).stream()
 				.collect(Collectors.toMap(Installment::installmentId, Function.identity()));
+		if (installmentIds.isEmpty() && !schedule.isEmpty()) {
+			throw new InstallmentNotEligibleException(installmentIds);
+		}
 		var notEligible = installmentIds.stream()
 				.filter(id -> !schedule.containsKey(id) || !schedule.get(id).isOpen())
 				.toList();

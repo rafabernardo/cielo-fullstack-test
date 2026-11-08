@@ -8,12 +8,12 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 
 public record CreatePortabilityOperationRequest(
 		@NotBlank String beneficiaryId,
-		@NotEmpty List<@NotBlank String> installmentIds,
+		// May be empty only when the schedule is empty: checked by the service, which knows the schedule.
+		@NotNull List<@NotBlank String> installmentIds,
 		@NotNull @Valid DestinationAccountRequest destinationAccount) {
 
 	@JsonIgnore
