@@ -1,0 +1,21 @@
+.text-field {
+  display: grid;
+  gap: var(--space-1);
+  align-content: start;
+
+  & input {
+    padding: var(--space-2);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-sm);
+
+    &[aria-invalid='true'] {
+      border-color: var(--color-bad);
+    }
+  }
+
+  & .error {
+    margin: 0;
+    color: var(--color-bad);
+    font-size: var(--font-size-sm);
+  }
+}
