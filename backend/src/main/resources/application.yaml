@@ -23,4 +23,4 @@ central-convenios:
 portability:
   status-poll-enabled: true
   # Internal tick only: each operation is checked again when the Central's Retry-After says so.
-  status-poll-tick: 1s
+  status-poll-tick: 5s

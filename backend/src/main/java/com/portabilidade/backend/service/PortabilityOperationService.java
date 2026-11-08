@@ -100,7 +100,7 @@ public class PortabilityOperationService {
 		if (!notEligible.isEmpty()) {
 			throw new InstallmentNotEligibleException(notEligible);
 		}
-		if (installmentIds.stream().anyMatch(id -> schedule.get(id).lockedByOperation())) {
+		if (installmentIds.stream().anyMatch(id -> schedule.get(id).isHeld())) {
 			throw buildConflict(installmentIds);
 		}
 	}

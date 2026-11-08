@@ -1,5 +1,6 @@
 package com.portabilidade.backend.controller;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.matchesPattern;
@@ -372,7 +373,10 @@ class PortabilityOperationControllerTest {
 				.andExpect(jsonPath("$.operationIds").value(contains(firstId)));
 		assertThat(operationRepository.count()).isOne();
 		schedule().andExpect(jsonPath("$.installments[0].eligible").value(false))
-				.andExpect(jsonPath("$.installments[1].eligible").value(true));
+				.andExpect(jsonPath("$.installments[0].heldBy.operationId").value(firstId))
+				.andExpect(jsonPath("$.installments[0].heldBy.status").value("PENDING"))
+				.andExpect(jsonPath("$.installments[1].eligible").value(true))
+				.andExpect(jsonPath("$.installments[1].heldBy").value(nullValue()));
 	}
 
 	private ResultActions create(String body) throws Exception {

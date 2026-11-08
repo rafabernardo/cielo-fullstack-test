@@ -1,5 +1,6 @@
 package com.portabilidade.backend.service;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -110,7 +111,9 @@ class PortabilityStatusServiceTest {
 
 		operation(id).andExpect(jsonPath("$.status").value("CONFIRMED"))
 				.andExpect(header().doesNotExist("Retry-After"));
-		schedule().andExpect(jsonPath("$.installments[0].eligible").value(false));
+		schedule().andExpect(jsonPath("$.installments[0].eligible").value(false))
+				.andExpect(jsonPath("$.installments[0].heldBy.operationId").value(id))
+				.andExpect(jsonPath("$.installments[0].heldBy.status").value("CONFIRMED"));
 	}
 
 	@Test
@@ -123,7 +126,8 @@ class PortabilityStatusServiceTest {
 
 		operation(id).andExpect(jsonPath("$.status").value("REJECTED"))
 				.andExpect(jsonPath("$.rejectionReason").value(MARGIN_REJECTION));
-		schedule().andExpect(jsonPath("$.installments[0].eligible").value(true));
+		schedule().andExpect(jsonPath("$.installments[0].eligible").value(true))
+				.andExpect(jsonPath("$.installments[0].heldBy").value(nullValue()));
 	}
 
 	@Test

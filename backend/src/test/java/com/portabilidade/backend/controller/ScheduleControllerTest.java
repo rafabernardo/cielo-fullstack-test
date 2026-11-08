@@ -1,5 +1,6 @@
 package com.portabilidade.backend.controller;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -65,6 +66,7 @@ class ScheduleControllerTest {
 				.andExpect(jsonPath("$.installments[0].status").value("OPEN"))
 				.andExpect(jsonPath("$.installments[0].eligible").value(true))
 				.andExpect(jsonPath("$.installments[1].eligible").value(true))
+				.andExpect(jsonPath("$.installments[0].heldBy").value(nullValue()))
 				.andExpect(content().string(containsString("\"amount\":150.00")))
 				.andExpect(content().string(containsString("\"amount\":150.10")));
 		assertThat(CentralConveniosStub.lastRequest().path()).isEqualTo("/beneficiarios/BEN001/agenda");
