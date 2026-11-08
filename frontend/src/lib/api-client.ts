@@ -33,7 +33,9 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   try {
     // Absolute URL: fetch outside the browser (tests) rejects relative ones.
     response = await fetch(new URL(path, window.location.origin), init);
-  } catch {
+  } catch (error) {
+    // A cancelled request is not a failure: let the AbortError through for the caller to ignore.
+    if (init?.signal?.aborted) throw error;
     throw new ApiError(0, { code: 'NETWORK_ERROR' });
   }
   if (!response.ok) {
@@ -46,7 +48,8 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   return response.json();
 };
 
-export const apiGet = <T>(path: string) => request<T>(path);
+// Pass the `signal` TanStack Query gives each query so obsolete reads are cancelled.
+export const apiGet = <T>(path: string, signal?: AbortSignal) => request<T>(path, { signal });
 
 export const apiPost = <T>(path: string, body: unknown) =>
   request<T>(path, {

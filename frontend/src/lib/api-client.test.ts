@@ -1,4 +1,4 @@
-import { http, HttpResponse } from 'msw';
+import { delay, http, HttpResponse } from 'msw';
 import { expect, test } from 'vitest';
 import { ApiError, apiGet, apiPost } from './api-client';
 import { server } from '@/testing/server';
@@ -50,4 +50,19 @@ test('throws a NETWORK_ERROR when the proxy cannot reach the backend', async () 
   server.use(http.get('/api/things', () => new HttpResponse('Bad Gateway', { status: 502 })));
 
   await expect(apiGet('/api/things')).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+});
+
+test('lets a cancelled request fail with the AbortError instead of a network error', async () => {
+  server.use(
+    http.get('/api/things', async () => {
+      await delay('infinite');
+      return HttpResponse.json({});
+    }),
+  );
+  const controller = new AbortController();
+
+  const request = apiGet('/api/things', controller.signal);
+  controller.abort();
+
+  await expect(request).rejects.toMatchObject({ name: 'AbortError' });
 });
