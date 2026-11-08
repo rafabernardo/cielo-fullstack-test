@@ -3,6 +3,7 @@ package com.portabilidade.backend.domain;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -55,6 +56,9 @@ public class PortabilityOperation {
 	private PortabilityOperationStatus status;
 
 	private String protocol;
+
+	// When the Central should be asked again about this operation; follows the Central's Retry-After.
+	private Instant nextCheckAt;
 
 	private String rejectionReason;
 
@@ -109,12 +113,19 @@ public class PortabilityOperation {
 			throw new IllegalStateException("Operation " + id + " was already submitted");
 		}
 		this.protocol = protocol;
+		this.nextCheckAt = Instant.now();
 		touch();
+	}
+
+	public void checkAgainIn(Duration delay) {
+		requirePending();
+		this.nextCheckAt = Instant.now().plus(delay);
 	}
 
 	public void confirm() {
 		requirePending();
 		this.status = PortabilityOperationStatus.CONFIRMED;
+		this.nextCheckAt = null;
 		touch();
 	}
 
@@ -122,12 +133,14 @@ public class PortabilityOperation {
 		requirePending();
 		this.status = PortabilityOperationStatus.REJECTED;
 		this.rejectionReason = reason;
+		this.nextCheckAt = null;
 		touch();
 	}
 
 	public void fail() {
 		requirePending();
 		this.status = PortabilityOperationStatus.FAILED;
+		this.nextCheckAt = null;
 		touch();
 	}
 
@@ -138,11 +151,21 @@ public class PortabilityOperation {
 		}
 		this.status = PortabilityOperationStatus.PENDING;
 		this.protocol = null;
+		this.nextCheckAt = null;
 		touch();
 	}
 
 	public boolean isPending() {
 		return status == PortabilityOperationStatus.PENDING;
+	}
+
+	/** Seconds a client should wait before reading this operation again; at least 1. */
+	public long secondsUntilNextCheck() {
+		if (nextCheckAt == null) {
+			return 1;
+		}
+		var millis = Duration.between(Instant.now(), nextCheckAt).toMillis();
+		return Math.max(1, (millis + 999) / 1000);
 	}
 
 	public boolean isFailed() {
@@ -177,6 +200,10 @@ public class PortabilityOperation {
 
 	public PortabilityOperationStatus getStatus() {
 		return status;
+	}
+
+	public String getProtocol() {
+		return protocol;
 	}
 
 	public String getRejectionReason() {

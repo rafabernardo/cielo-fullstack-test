@@ -1,9 +1,11 @@
 package com.portabilidade.backend.exception;
 
-public class CentralConveniosUnavailableException extends RuntimeException {
+import java.time.Duration;
 
-	public CentralConveniosUnavailableException(String message) {
-		super(message);
+public class CentralConveniosUnavailableException extends CentralConveniosException {
+
+	public CentralConveniosUnavailableException(String message, Duration retryAfter) {
+		super(message, retryAfter);
 	}
 
 }

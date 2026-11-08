@@ -14,8 +14,7 @@ import com.portabilidade.backend.domain.DestinationAccount;
 import com.portabilidade.backend.domain.Installment;
 import com.portabilidade.backend.domain.InstallmentLock;
 import com.portabilidade.backend.domain.PortabilityOperation;
-import com.portabilidade.backend.exception.CentralConveniosBadResponseException;
-import com.portabilidade.backend.exception.CentralConveniosUnavailableException;
+import com.portabilidade.backend.exception.CentralConveniosException;
 import com.portabilidade.backend.exception.IdempotencyKeyReusedException;
 import com.portabilidade.backend.exception.InstallmentInOperationException;
 import com.portabilidade.backend.exception.InstallmentNotEligibleException;
@@ -142,7 +141,7 @@ public class PortabilityOperationService {
 		String protocol;
 		try {
 			protocol = centralConveniosGateway.submitPortability(toCentralRequest(operation));
-		} catch (CentralConveniosUnavailableException | CentralConveniosBadResponseException e) {
+		} catch (CentralConveniosException e) {
 			transaction.executeWithoutResult(status -> {
 				get(operation.getId()).fail();
 				installmentLockRepository.deleteByOperationId(operation.getId());

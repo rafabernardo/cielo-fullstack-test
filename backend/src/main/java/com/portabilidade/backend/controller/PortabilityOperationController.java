@@ -23,8 +23,6 @@ import jakarta.validation.Valid;
 @RequestMapping("/api/portability-operations")
 public class PortabilityOperationController {
 
-	private static final String RETRY_AFTER_SECONDS = "2";
-
 	private final PortabilityOperationService portabilityOperationService;
 
 	public PortabilityOperationController(PortabilityOperationService portabilityOperationService) {
@@ -49,7 +47,7 @@ public class PortabilityOperationController {
 		var operation = portabilityOperationService.get(id);
 		var response = ResponseEntity.ok();
 		if (operation.isPending()) {
-			response.header(HttpHeaders.RETRY_AFTER, RETRY_AFTER_SECONDS);
+			response.header(HttpHeaders.RETRY_AFTER, String.valueOf(operation.secondsUntilNextCheck()));
 		}
 		return response.body(PortabilityOperationResponse.from(operation));
 	}

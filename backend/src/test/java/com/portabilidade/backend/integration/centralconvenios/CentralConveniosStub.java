@@ -63,6 +63,14 @@ public final class CentralConveniosStub {
 		ROUTES.put(method + " " + path, exchange -> send(exchange, status, body));
 	}
 
+	/** Like {@link #respondTo(String, String, int, String)}, also sending {@code Retry-After: seconds}. */
+	public static void respondToWithRetryAfter(String method, String path, int status, String body, long seconds) {
+		ROUTES.put(method + " " + path, exchange -> {
+			exchange.getResponseHeaders().add("Retry-After", String.valueOf(seconds));
+			send(exchange, status, body);
+		});
+	}
+
 	public static void respondToAfter(String method, String path, Duration delay, int status, String body) {
 		ROUTES.put(method + " " + path, exchange -> {
 			sleep(delay);

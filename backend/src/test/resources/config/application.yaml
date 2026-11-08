@@ -1,0 +1,3 @@
+# Loaded on top of the main application.yaml in tests. Tests run the status job by hand, so it never races them.
+portability:
+  status-poll-enabled: false

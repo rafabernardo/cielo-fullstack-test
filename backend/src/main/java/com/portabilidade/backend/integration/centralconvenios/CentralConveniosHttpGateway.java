@@ -1,12 +1,14 @@
 package com.portabilidade.backend.integration.centralconvenios;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.List;
 import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -36,12 +38,14 @@ class CentralConveniosHttpGateway implements CentralConveniosGateway {
 			};
 
 	private final RestClient restClient;
+	private final Duration defaultRetryAfter;
 
 	CentralConveniosHttpGateway(RestClient.Builder builder, CentralConveniosProperties properties) {
 		var requestFactory = new SimpleClientHttpRequestFactory();
 		requestFactory.setConnectTimeout(properties.connectTimeout());
 		requestFactory.setReadTimeout(properties.readTimeout());
 		this.restClient = builder.baseUrl(properties.baseUrl()).requestFactory(requestFactory).build();
+		this.defaultRetryAfter = properties.defaultRetryAfter();
 	}
 
 	@Override
@@ -101,13 +105,13 @@ class CentralConveniosHttpGateway implements CentralConveniosGateway {
 		return toResult(operation, response);
 	}
 
-	private static CentralPortabilityResult toResult(String operation,
+	private CentralPortabilityResult toResult(String operation,
 			ResponseEntity<CentralPortabilityStatusResponse> response) {
 		if (response.getStatusCode().isSameCodeAs(HttpStatus.NOT_FOUND)) {
 			return new CentralPortabilityResult.NotFound();
 		}
 		if (response.getStatusCode().isSameCodeAs(HttpStatus.NO_CONTENT)) {
-			return new CentralPortabilityResult.Pending();
+			return new CentralPortabilityResult.Pending(retryAfterOf(response.getHeaders()));
 		}
 		var body = response.getBody();
 		if (body == null || body.status() == null) {
@@ -126,12 +130,12 @@ class CentralConveniosHttpGateway implements CentralConveniosGateway {
 			body = call.get();
 		} catch (HttpServerErrorException e) {
 			log.warn("Central de Convênios answered {} on {}", e.getStatusCode(), operation);
-			throw new CentralConveniosUnavailableException(errorMessageOf(e));
+			throw new CentralConveniosUnavailableException(errorMessageOf(e), retryAfterOf(e.getResponseHeaders()));
 		} catch (RestClientException e) {
 			if (isTransportFailure(e)) {
 				log.warn("Central de Convênios unreachable on {}: {}", operation,
 						e.getMostSpecificCause().getClass().getSimpleName());
-				throw new CentralConveniosUnavailableException(UNAVAILABLE_MESSAGE);
+				throw new CentralConveniosUnavailableException(UNAVAILABLE_MESSAGE, defaultRetryAfter);
 			}
 			throw badResponse(operation, describe(e));
 		}
@@ -148,9 +152,19 @@ class CentralConveniosHttpGateway implements CentralConveniosGateway {
 				: e.getMostSpecificCause().getClass().getSimpleName();
 	}
 
-	private static CentralConveniosBadResponseException badResponse(String operation, String reason) {
+	private CentralConveniosBadResponseException badResponse(String operation, String reason) {
 		log.warn("Central de Convênios bad response on {}: {}", operation, reason);
-		return new CentralConveniosBadResponseException();
+		return new CentralConveniosBadResponseException(defaultRetryAfter);
+	}
+
+	// ponytail: only the delay-seconds form of Retry-After; an HTTP-date falls back to the default (parse it with
+	// DateTimeFormatter.RFC_1123_DATE_TIME if the Central starts sending dates).
+	private Duration retryAfterOf(HttpHeaders headers) {
+		var value = headers == null ? null : headers.getFirst(HttpHeaders.RETRY_AFTER);
+		if (value == null || !value.strip().matches("\\d{1,9}")) {
+			return defaultRetryAfter;
+		}
+		return Duration.ofSeconds(Long.parseLong(value.strip()));
 	}
 
 	// Timeouts and dropped connections may surface while the body is read, wrapped as a generic RestClientException.

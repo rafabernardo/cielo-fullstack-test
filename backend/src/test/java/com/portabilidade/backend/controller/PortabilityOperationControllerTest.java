@@ -112,14 +112,14 @@ class PortabilityOperationControllerTest {
 	}
 
 	@Test
-	void readsStoredOperationWithRetryAfterWhilePending() throws Exception {
+	void readsStoredOperationWithoutCallingCentralAndAsksToRetrySoonWhileDueForCheck() throws Exception {
 		var id = idOf(create(UUID.randomUUID(), requestFor("P001")).andReturn());
 		var requestsBeforeRead = CentralConveniosStub.requests().size();
 
 		var result = mockMvc.perform(get("/api/portability-operations/{id}", id));
 
 		result.andExpect(status().isOk())
-				.andExpect(header().string("Retry-After", "2"))
+				.andExpect(header().string("Retry-After", "1"))
 				.andExpect(jsonPath("$.id").value(id))
 				.andExpect(jsonPath("$.status").value("PENDING"));
 		assertThat(CentralConveniosStub.requests()).hasSize(requestsBeforeRead);

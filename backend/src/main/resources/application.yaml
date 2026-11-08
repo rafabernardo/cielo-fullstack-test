@@ -6,3 +6,9 @@ central-convenios:
   base-url: http://localhost:4000
   connect-timeout: 2s
   read-timeout: 5s
+  default-retry-after: 2s
+
+portability:
+  status-poll-enabled: true
+  # Internal tick only: each operation is checked again when the Central's Retry-After says so.
+  status-poll-tick: 1s
