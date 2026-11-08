@@ -6,6 +6,9 @@ spring:
       # Lifetime of an SSE stream; the browser's EventSource reconnects and receives the current status again.
       request-timeout: 60s
 
+springdoc:
+  default-produces-media-type: application/json
+
 central-convenios:
   base-url: http://localhost:4000
   connect-timeout: 2s

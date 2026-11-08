@@ -19,6 +19,10 @@ import com.portabilidade.backend.domain.PortabilityOperationStatusChanged;
 import com.portabilidade.backend.dto.PortabilityOperationResponse;
 import com.portabilidade.backend.service.PortabilityOperationService;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+
 /**
  * Pushes an operation's status to its SSE subscribers: once on subscribe, then after every committed change.
  * The stream completes once the operation leaves PENDING.
@@ -38,6 +42,10 @@ public class PortabilityOperationEventsController {
 	}
 
 	@GetMapping(path = "/{operationId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+	@ApiResponse(responseCode = "200", description = "One 'status' event with the current state, then one per change; "
+			+ "closed once the operation leaves PENDING", content = @Content(mediaType = MediaType.TEXT_EVENT_STREAM_VALUE,
+					schema = @Schema(implementation = PortabilityOperationResponse.class)))
+	@ApiResponse(responseCode = "404", description = "PORTABILITY_OPERATION_NOT_FOUND, before any stream is opened")
 	public SseEmitter subscribe(@PathVariable UUID operationId) {
 		portabilityOperationService.get(operationId); // 404 before any stream is opened
 		var emitter = new SseEmitter(); // timeout: spring.mvc.async.request-timeout
