@@ -1,0 +1,17 @@
+package com.portabilidade.backend.repository;
+
+import java.util.Collection;
+import java.util.List;
+import java.util.UUID;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import com.portabilidade.backend.domain.InstallmentLock;
+
+public interface InstallmentLockRepository extends JpaRepository<InstallmentLock, UUID> {
+
+	List<InstallmentLock> findAllByInstallmentIdIn(Collection<String> installmentIds);
+
+	void deleteByOperationId(UUID operationId);
+
+}
