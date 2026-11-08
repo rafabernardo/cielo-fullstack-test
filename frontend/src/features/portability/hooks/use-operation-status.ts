@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { operationKey, useOperation } from '@/features/portability/api/get-operation';
+import { operationsKey } from '@/features/portability/api/get-operations';
 import { scheduleKey } from '@/features/portability/api/get-schedule';
 import type { PortabilityOperation } from '@/features/portability/types';
 
@@ -23,8 +24,9 @@ export const useOperationStatus = (id: string) => {
       queryClient.setQueryData(operationKey(id), current);
       if (current.status !== 'PENDING') {
         source.close();
-        // Installments were taken for good or freed again.
+        // Installments were taken for good or freed again, and the history shows the new status.
         void queryClient.invalidateQueries({ queryKey: scheduleKey(current.beneficiaryId) });
+        void queryClient.invalidateQueries({ queryKey: operationsKey(current.beneficiaryId) });
       }
     });
     // EventSource reconnects on its own (e.g. after the 60 s server timeout); CLOSED means it gave up.

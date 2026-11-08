@@ -1,0 +1,9 @@
+.beneficiary-portability {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.loading {
+  margin: 0;
+  color: var(--color-muted);
+}

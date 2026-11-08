@@ -1,13 +1,23 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { delay, http, HttpResponse, sse } from 'msw';
-import { describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test } from 'vitest';
 import { PortabilityPage } from '.';
 import type { PortabilityOperation, Schedule } from '@/features/portability/types';
 import { renderWithProviders } from '@/testing/render';
 import { server } from '@/testing/server';
 
 const SCHEDULE_URL = '/api/beneficiaries/:beneficiaryId/schedule';
+const HISTORY_URL = '/api/beneficiaries/:beneficiaryId/portability-operations';
+
+const historyPage = (content: PortabilityOperation[], totalPages = content.length ? 1 : 0) =>
+  HttpResponse.json({
+    content,
+    page: { size: 5, number: 0, totalElements: content.length, totalPages },
+  });
+
+// Every test starts with an empty history; tests about the history override it.
+beforeEach(() => server.use(http.get(HISTORY_URL, () => historyPage([]))));
 
 const schedule = (beneficiaryId: string): Schedule => ({
   beneficiaryId,
@@ -435,5 +445,102 @@ describe('PortabilityPage — following the operation', () => {
       'Pendente',
     );
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
+describe('PortabilityPage — history and resuming after a reload', () => {
+  const operationOf = (
+    id: string,
+    status: PortabilityOperation['status'],
+    extra: Partial<PortabilityOperation> = {},
+  ): PortabilityOperation => ({
+    id,
+    beneficiaryId: 'BEN001',
+    installmentIds: ['P001'],
+    destinationAccount: { bankCode: '341', branch: '0001', accountNumber: '123456-7' },
+    status,
+    rejectionReason: null,
+    createdAt: '2026-11-08T12:00:00Z',
+    updatedAt: '2026-11-08T12:00:00Z',
+    ...extra,
+  });
+
+  const openBeneficiary = () => {
+    window.history.replaceState(null, '', '/?beneficiary=BEN001');
+    server.use(http.get(SCHEDULE_URL, () => HttpResponse.json(schedule('BEN001'))));
+    renderWithProviders(<PortabilityPage />);
+  };
+
+  const history = () => screen.getByRole('region', { name: 'Suas portabilidades' });
+
+  test('resumes following the pending operation found in the history', async () => {
+    server.use(
+      http.get(HISTORY_URL, () =>
+        historyPage([
+          operationOf('op-new', 'PENDING'),
+          operationOf('op-old', 'REJECTED', { rejectionReason: 'Sem margem' }),
+        ]),
+      ),
+      sse<{ status: string }>('/api/portability-operations/:id/events', ({ client, params }) => {
+        const operation = operationOf(String(params.id), 'PENDING');
+        client.send({ event: 'status', data: JSON.stringify(operation) });
+        setTimeout(
+          () =>
+            client.send({
+              event: 'status',
+              data: JSON.stringify({ ...operation, status: 'CONFIRMED' }),
+            }),
+          50,
+        );
+      }),
+    );
+
+    openBeneficiary();
+
+    const tracker = await screen.findByRole('heading', { name: /Operação op-new/ });
+    expect(tracker).toHaveTextContent('Pendente');
+    expect(
+      await screen.findByText('Portabilidade confirmada para as parcelas P001.'),
+    ).toBeVisible();
+    expect(tracker).toHaveTextContent('Confirmada');
+    const rows = within(history()).getAllByRole('listitem');
+    expect(rows[0]).toHaveTextContent('Confirmada');
+    expect(rows[1]).toHaveTextContent('Rejeitada');
+    expect(rows[1]).toHaveTextContent('Sem margem');
+    expect(rows[1]).toHaveTextContent('Banco 341 · Agência 0001 · Conta 123456-7');
+  });
+
+  test('pages through the history five at a time', async () => {
+    const requestedPages: (string | null)[] = [];
+    server.use(
+      http.get(HISTORY_URL, ({ request }) => {
+        const url = new URL(request.url);
+        requestedPages.push(url.searchParams.get('page'));
+        expect(url.searchParams.get('size')).toBe('5');
+        const page = Number(url.searchParams.get('page'));
+        return HttpResponse.json({
+          content: [operationOf(`op-page-${page}`, 'REJECTED')],
+          page: { size: 5, number: page, totalElements: 6, totalPages: 2 },
+        });
+      }),
+    );
+    openBeneficiary();
+    const user = userEvent.setup();
+
+    expect(await screen.findByText('Página 1 de 2')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Anterior' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Próxima' }));
+
+    expect(await screen.findByText('Página 2 de 2')).toBeInTheDocument();
+    expect(within(history()).getByRole('listitem')).toHaveTextContent('1 parcela(s)');
+    expect(screen.getByRole('button', { name: 'Próxima' })).toBeDisabled();
+    expect(requestedPages).toEqual(['0', '1']);
+  });
+
+  test('says when the beneficiary has no operations', async () => {
+    openBeneficiary();
+
+    expect(await screen.findByText('Nenhuma portabilidade solicitada.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /Operação/ })).not.toBeInTheDocument();
   });
 });
