@@ -11,6 +11,8 @@ type ScheduleSectionProps = {
   beneficiaryId: string;
   selected: string[];
   onToggle: (installmentId: string) => void;
+  // Locks the selection, e.g. while an operation is being followed.
+  disabled?: boolean;
   // Rendered below the table once there is something to select (e.g. the request form).
   children?: ReactNode;
 };
@@ -23,6 +25,7 @@ export const ScheduleSection = ({
   beneficiaryId,
   selected,
   onToggle,
+  disabled,
   children,
 }: ScheduleSectionProps) => {
   const schedule = useSchedule(beneficiaryId);
@@ -43,7 +46,12 @@ export const ScheduleSection = ({
   const { installments } = schedule.data;
   return (
     <div className={styles.scheduleSection}>
-      <ScheduleTable installments={installments} selected={selected} onToggle={onToggle} />
+      <ScheduleTable
+        installments={installments}
+        selected={selected}
+        onToggle={onToggle}
+        disabled={disabled}
+      />
       {installments.length > 0 && children}
     </div>
   );

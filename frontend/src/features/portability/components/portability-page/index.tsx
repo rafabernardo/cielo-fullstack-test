@@ -1,16 +1,34 @@
 import { useState } from 'react';
 import styles from './portability-page.module.css';
+import { useOperation } from '@/features/portability/api/get-operation';
 import { useSchedule } from '@/features/portability/api/get-schedule';
 import { BeneficiaryForm } from '@/features/portability/components/beneficiary-form';
 import { DestinationAccountForm } from '@/features/portability/components/destination-account-form';
+import { OperationTracker } from '@/features/portability/components/operation-tracker';
 import { ScheduleSection } from '@/features/portability/components/schedule-section';
+import { useInstallmentSelection } from '@/features/portability/hooks/use-installment-selection';
 import { readBeneficiary, writeBeneficiary } from '@/features/portability/utils/beneficiary-url';
+
+type Tracking = {
+  operationId: string;
+  notice?: string;
+};
 
 export const PortabilityPage = () => {
   const [beneficiaryId, setBeneficiaryId] = useState(readBeneficiary);
-  const [selected, setSelected] = useState<string[]>([]);
-  const [operationId, setOperationId] = useState<string | null>(null);
+  const [tracking, setTracking] = useState<Tracking | null>(null);
   const schedule = useSchedule(beneficiaryId);
+  const selection = useInstallmentSelection(schedule.data?.installments);
+  const tracked = useOperation(tracking?.operationId ?? null);
+
+  // Nothing new is requested while the followed operation is still waiting for the Central.
+  const isWaiting =
+    tracking !== null && !tracked.isError && (tracked.data?.status ?? 'PENDING') === 'PENDING';
+
+  const startOver = () => {
+    setTracking(null);
+    selection.clear();
+  };
 
   const consult = (id: string) => {
     writeBeneficiary(id);
@@ -18,25 +36,11 @@ export const PortabilityPage = () => {
       void schedule.refetch();
     } else {
       setBeneficiaryId(id);
-      setSelected([]);
-      setOperationId(null);
+      startOver();
     }
   };
 
-  const toggle = (installmentId: string) => {
-    setSelected((current) => {
-      const isSelected = current.includes(installmentId);
-      if (isSelected) {
-        return current.filter((id) => id !== installmentId);
-      }
-      return [...current, installmentId];
-    });
-  };
-
-  // A refetched schedule may no longer offer a selected installment: only eligible ones count.
-  const eligibleSelected = selected.filter((id) =>
-    schedule.data?.installments.some((i) => i.installmentId === id && i.eligible),
-  );
+  const follow = (operationId: string, notice?: string) => setTracking({ operationId, notice });
 
   return (
     <div className={styles.portabilityPage}>
@@ -46,17 +50,31 @@ export const PortabilityPage = () => {
         <ScheduleSection
           key={beneficiaryId}
           beneficiaryId={beneficiaryId}
-          selected={eligibleSelected}
-          onToggle={toggle}
+          selected={selection.selected}
+          onToggle={selection.toggle}
+          disabled={isWaiting}
         >
           <DestinationAccountForm
             beneficiaryId={beneficiaryId}
-            installmentIds={eligibleSelected}
-            onCreated={(operation) => setOperationId(operation.id)}
+            installmentIds={selection.selected}
+            onCreated={(operation) => follow(operation.id)}
+            onExistingOperation={(operationId) =>
+              follow(operationId, 'Já existe uma solicitação em andamento para essas parcelas.')
+            }
+            disabled={isWaiting}
           />
         </ScheduleSection>
       )}
-      {operationId && <p role="status">Operação {operationId} criada.</p>}
+      {tracking && (
+        <OperationTracker
+          key={tracking.operationId}
+          operationId={tracking.operationId}
+          onRetried={(operation) => follow(operation.id)}
+          onNewRequest={startOver}
+        >
+          {tracking.notice && <p role="status">{tracking.notice}</p>}
+        </OperationTracker>
+      )}
     </div>
   );
 };

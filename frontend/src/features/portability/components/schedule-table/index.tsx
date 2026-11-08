@@ -8,9 +8,15 @@ type ScheduleTableProps = {
   installments: Installment[];
   selected: string[];
   onToggle: (installmentId: string) => void;
+  disabled?: boolean;
 };
 
-export const ScheduleTable = ({ installments, selected, onToggle }: ScheduleTableProps) => {
+export const ScheduleTable = ({
+  installments,
+  selected,
+  onToggle,
+  disabled = false,
+}: ScheduleTableProps) => {
   if (installments.length === 0) {
     return <p className={styles.empty}>Nenhuma parcela futura para este beneficiário.</p>;
   }
@@ -43,7 +49,7 @@ export const ScheduleTable = ({ installments, selected, onToggle }: ScheduleTabl
                   type="checkbox"
                   aria-label={`Selecionar parcela ${installmentId}`}
                   checked={selected.includes(installmentId)}
-                  disabled={!eligible}
+                  disabled={disabled || !eligible}
                   onChange={() => onToggle(installmentId)}
                 />
               </td>

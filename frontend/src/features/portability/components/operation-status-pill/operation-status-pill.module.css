@@ -1,0 +1,22 @@
+.operation-status-pill {
+  display: inline-block;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.pending {
+  background: var(--color-warn-soft);
+  color: var(--color-warn);
+}
+
+.confirmed {
+  background: var(--color-ok-soft);
+  color: var(--color-ok);
+}
+
+.rejected {
+  background: var(--color-bad-soft);
+  color: var(--color-bad);
+}

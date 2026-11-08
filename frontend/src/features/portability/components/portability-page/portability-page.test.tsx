@@ -1,9 +1,9 @@
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { delay, http, HttpResponse } from 'msw';
+import { delay, http, HttpResponse, sse } from 'msw';
 import { describe, expect, test } from 'vitest';
 import { PortabilityPage } from '.';
-import type { Schedule } from '@/features/portability/types';
+import type { PortabilityOperation, Schedule } from '@/features/portability/types';
 import { renderWithProviders } from '@/testing/render';
 import { server } from '@/testing/server';
 
@@ -190,6 +190,7 @@ describe('PortabilityPage — schedule and selection', () => {
 
 describe('PortabilityPage — destination account and request', () => {
   const OPERATIONS_URL = '/api/portability-operations';
+  const EVENTS_URL = '/api/portability-operations/:id/events';
 
   const operation = (id: string) => ({
     id,
@@ -202,10 +203,15 @@ describe('PortabilityPage — destination account and request', () => {
     updatedAt: '2026-11-08T12:00:00Z',
   });
 
-  // Opens BEN001 with P001 selected.
+  // Opens BEN001 with P001 selected; created operations stay PENDING.
   const selectInstallment = async () => {
     window.history.replaceState(null, '', '/?beneficiary=BEN001');
-    server.use(http.get(SCHEDULE_URL, () => HttpResponse.json(schedule('BEN001'))));
+    server.use(
+      http.get(SCHEDULE_URL, () => HttpResponse.json(schedule('BEN001'))),
+      sse<{ status: string }>(EVENTS_URL, ({ client, params }) => {
+        client.send({ event: 'status', data: JSON.stringify(operation(String(params.id))) });
+      }),
+    );
     renderWithProviders(<PortabilityPage />);
     const user = userEvent.setup();
     await user.click(await screen.findByLabelText('Selecionar parcela P001'));
@@ -287,7 +293,9 @@ describe('PortabilityPage — destination account and request', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Tentar novamente' }));
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Operação op-1 criada.');
+    expect(await screen.findByRole('heading', { name: /Operação op-1/ })).toHaveTextContent(
+      'Pendente',
+    );
     expect(bodies).toEqual([
       {
         beneficiaryId: 'BEN001',
@@ -312,7 +320,120 @@ describe('PortabilityPage — destination account and request', () => {
     await fillAccount(user);
     await user.dblClick(requestButton());
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Operação op-1 criada.');
+    expect(await screen.findByRole('heading', { name: /Operação op-1/ })).toBeInTheDocument();
     expect(posts).toBe(1);
+  });
+});
+
+describe('PortabilityPage — following the operation', () => {
+  const EVENTS_URL = '/api/portability-operations/:id/events';
+
+  const pending = (id: string): PortabilityOperation => ({
+    id,
+    beneficiaryId: 'BEN001',
+    installmentIds: ['P001'],
+    destinationAccount: { bankCode: '341', branch: '0001', accountNumber: '123456-7' },
+    status: 'PENDING',
+    rejectionReason: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
+  // Streams PENDING right away, then `outcome` (if any) shortly after, like the backend does.
+  const streamStatus = (outcome?: Partial<PortabilityOperation>) =>
+    sse<{ status: string }>(EVENTS_URL, ({ client, params }) => {
+      const operation = pending(String(params.id));
+      client.send({ event: 'status', data: JSON.stringify(operation) });
+      if (outcome) {
+        setTimeout(
+          () =>
+            client.send({ event: 'status', data: JSON.stringify({ ...operation, ...outcome }) }),
+          50,
+        );
+      }
+    });
+
+  const requestPortability = async (postResponse: () => Response) => {
+    let scheduleReads = 0;
+    window.history.replaceState(null, '', '/?beneficiary=BEN001');
+    server.use(
+      http.get(SCHEDULE_URL, () => {
+        scheduleReads++;
+        return HttpResponse.json(schedule('BEN001'));
+      }),
+      http.post('/api/portability-operations', postResponse),
+    );
+    renderWithProviders(<PortabilityPage />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByLabelText('Selecionar parcela P001'));
+    await user.type(screen.getByLabelText('Banco'), '341');
+    await user.type(screen.getByLabelText('Agência'), '0001');
+    await user.type(screen.getByLabelText('Conta'), '123456-7');
+    await user.click(screen.getByRole('button', { name: 'Solicitar portabilidade' }));
+    return { user, scheduleReads: () => scheduleReads };
+  };
+
+  test('waits for the Central and shows the confirmation', async () => {
+    server.use(streamStatus({ status: 'CONFIRMED' }));
+
+    const { scheduleReads } = await requestPortability(() =>
+      HttpResponse.json(pending('op-1'), { status: 202 }),
+    );
+
+    expect(await screen.findByText(/Aguardando a Central…/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Solicitar portabilidade' })).toBeDisabled();
+    expect(screen.getByLabelText('Selecionar parcela P001')).toBeDisabled();
+    expect(
+      await screen.findByText('Portabilidade confirmada para as parcelas P001.'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Operação op-1/ })).toHaveTextContent('Confirmada');
+    await waitFor(() => expect(scheduleReads()).toBe(2));
+    expect(screen.getByRole('button', { name: 'Nova portabilidade' })).toBeInTheDocument();
+  });
+
+  test('shows the rejection reason as a result, not as an error', async () => {
+    server.use(
+      streamStatus({
+        status: 'REJECTED',
+        rejectionReason: 'Beneficiário atingiu o limite de margem consignável',
+      }),
+    );
+
+    await requestPortability(() => HttpResponse.json(pending('op-2'), { status: 202 }));
+
+    expect(
+      await screen.findByText(
+        'Portabilidade rejeitada pela Central: Beneficiário atingiu o limite de margem consignável.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  test('follows the existing operation when the installments are already pending', async () => {
+    server.use(
+      http.get('/api/portability-operations/:id', ({ params }) =>
+        HttpResponse.json(pending(String(params.id))),
+      ),
+      streamStatus(),
+    );
+
+    await requestPortability(() =>
+      HttpResponse.json(
+        {
+          code: 'INSTALLMENT_IN_PENDING_OPERATION',
+          installmentIds: ['P001'],
+          operationIds: ['op-9'],
+        },
+        { status: 409, headers: { 'Content-Type': 'application/problem+json' } },
+      ),
+    );
+
+    expect(
+      await screen.findByText('Já existe uma solicitação em andamento para essas parcelas.'),
+    ).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Operação op-9/ })).toHaveTextContent(
+      'Pendente',
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
