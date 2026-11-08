@@ -6,13 +6,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
 
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,21 +17,17 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.RequestBuilder;
 
 import com.portabilidade.backend.domain.Authorization;
+import com.portabilidade.backend.integration.centralconvenios.CentralConveniosStub;
+import com.portabilidade.backend.integration.centralconvenios.CentralConveniosStub.ReceivedRequest;
 import com.portabilidade.backend.repository.AuthorizationRepository;
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
-import com.sun.net.httpserver.HttpServer;
 
 // Exercises POST /api/authorizations end to end; only the Central de Convênios is faked, over real HTTP.
 @SpringBootTest
 @AutoConfigureMockMvc
 class AuthorizationControllerTest {
-
-	private static final AtomicReference<HttpHandler> CENTRAL_BEHAVIOR = new AtomicReference<>();
-	private static final AtomicReference<String> CENTRAL_RECEIVED_BODY = new AtomicReference<>();
-	private static final HttpServer CENTRAL = startCentral();
 
 	@Autowired
 	private MockMvc mockMvc;
@@ -46,25 +37,19 @@ class AuthorizationControllerTest {
 
 	@DynamicPropertySource
 	static void centralProperties(DynamicPropertyRegistry registry) {
-		registry.add("central-convenios.base-url", () -> "http://localhost:" + CENTRAL.getAddress().getPort());
-		registry.add("central-convenios.read-timeout", () -> "500ms");
-	}
-
-	@AfterAll
-	static void stopCentral() {
-		CENTRAL.stop(0);
+		CentralConveniosStub.registerProperties(registry);
 	}
 
 	@BeforeEach
 	void reset() {
 		authorizationRepository.deleteAll();
-		CENTRAL_RECEIVED_BODY.set(null);
+		CentralConveniosStub.reset();
 	}
 
 	@Test
 	void registersAuthorizationAtCentralAndStoresIt() throws Exception {
 		var centralId = UUID.randomUUID().toString();
-		centralResponds(201, "{\"autorizacaoId\":\"" + centralId + "\"}");
+		CentralConveniosStub.respond(201, "{\"autorizacaoId\":\"" + centralId + "\"}");
 
 		var result = mockMvc.perform(createAuthorization("{\"beneficiaryId\":\"BEN001\"}"));
 
@@ -73,7 +58,8 @@ class AuthorizationControllerTest {
 				.andExpect(jsonPath("$.beneficiaryId").value("BEN001"))
 				.andExpect(jsonPath("$.centralAuthorizationId").value(centralId))
 				.andExpect(jsonPath("$.createdAt").isNotEmpty());
-		assertThat(CENTRAL_RECEIVED_BODY.get()).isEqualTo("{\"beneficiarioId\":\"BEN001\"}");
+		assertThat(CentralConveniosStub.lastRequest())
+				.isEqualTo(new ReceivedRequest("POST", "/autorizacoes", "{\"beneficiarioId\":\"BEN001\"}"));
 		assertThat(authorizationRepository.findAll())
 				.singleElement()
 				.extracting(Authorization::getBeneficiaryId, Authorization::getCentralAuthorizationId)
@@ -88,7 +74,7 @@ class AuthorizationControllerTest {
 				.andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
 				.andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
 				.andExpect(jsonPath("$.errors.beneficiaryId").isNotEmpty());
-		assertThat(CENTRAL_RECEIVED_BODY.get()).isNull();
+		assertThat(CentralConveniosStub.lastRequest()).isNull();
 		assertThat(authorizationRepository.count()).isZero();
 	}
 
@@ -103,7 +89,8 @@ class AuthorizationControllerTest {
 
 	@Test
 	void returnsUnavailableWithCentralMessageWhenCentralAnswers503() throws Exception {
-		centralResponds(503, "{\"erro\":\"Central indisponível no momento (simulado). Tente novamente.\"}");
+		CentralConveniosStub.respond(503,
+				"{\"erro\":\"Central indisponível no momento (simulado). Tente novamente.\"}");
 
 		var result = mockMvc.perform(createAuthorization("{\"beneficiaryId\":\"BEN001\"}"));
 
@@ -117,7 +104,7 @@ class AuthorizationControllerTest {
 
 	@Test
 	void returnsUnavailableWhenCentralDropsTheConnection() throws Exception {
-		CENTRAL_BEHAVIOR.set(HttpExchange::close);
+		CentralConveniosStub.dropConnection();
 
 		var result = mockMvc.perform(createAuthorization("{\"beneficiaryId\":\"BEN001\"}"));
 
@@ -128,10 +115,8 @@ class AuthorizationControllerTest {
 
 	@Test
 	void returnsUnavailableWhenCentralTimesOut() throws Exception {
-		CENTRAL_BEHAVIOR.set(exchange -> {
-			sleep(1_500);
-			respond(exchange, 201, "{\"autorizacaoId\":\"late\"}");
-		});
+		CentralConveniosStub.respondAfter(CentralConveniosStub.READ_TIMEOUT.multipliedBy(3), 201,
+				"{\"autorizacaoId\":\"late\"}");
 
 		var result = mockMvc.perform(createAuthorization("{\"beneficiaryId\":\"BEN001\"}"));
 
@@ -142,7 +127,7 @@ class AuthorizationControllerTest {
 
 	@Test
 	void returnsBadGatewayWhenCentralAnswersUnexpected4xx() throws Exception {
-		centralResponds(404, "{\"erro\":\"Rota não encontrada\"}");
+		CentralConveniosStub.respond(404, "{\"erro\":\"Rota não encontrada\"}");
 
 		var result = mockMvc.perform(createAuthorization("{\"beneficiaryId\":\"BEN001\"}"));
 
@@ -153,7 +138,7 @@ class AuthorizationControllerTest {
 
 	@Test
 	void returnsBadGatewayWhenCentralAnswersWithoutAuthorizationId() throws Exception {
-		centralResponds(201, "{}");
+		CentralConveniosStub.respond(201, "{}");
 
 		var result = mockMvc.perform(createAuthorization("{\"beneficiaryId\":\"BEN001\"}"));
 
@@ -162,42 +147,8 @@ class AuthorizationControllerTest {
 		assertThat(authorizationRepository.count()).isZero();
 	}
 
-	private static org.springframework.test.web.servlet.RequestBuilder createAuthorization(String body) {
+	private static RequestBuilder createAuthorization(String body) {
 		return post("/api/authorizations").contentType(MediaType.APPLICATION_JSON).content(body);
-	}
-
-	private static void centralResponds(int status, String body) {
-		CENTRAL_BEHAVIOR.set(exchange -> respond(exchange, status, body));
-	}
-
-	private static void respond(HttpExchange exchange, int status, String body) throws IOException {
-		var bytes = body.getBytes(StandardCharsets.UTF_8);
-		exchange.getResponseHeaders().add("Content-Type", "application/json");
-		exchange.sendResponseHeaders(status, bytes.length);
-		exchange.getResponseBody().write(bytes);
-		exchange.close();
-	}
-
-	private static void sleep(long millis) {
-		try {
-			Thread.sleep(millis);
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
-		}
-	}
-
-	private static HttpServer startCentral() {
-		try {
-			var server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
-			server.createContext("/", exchange -> {
-				CENTRAL_RECEIVED_BODY.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-				CENTRAL_BEHAVIOR.get().handle(exchange);
-			});
-			server.start();
-			return server;
-		} catch (IOException e) {
-			throw new IllegalStateException(e);
-		}
 	}
 
 }
