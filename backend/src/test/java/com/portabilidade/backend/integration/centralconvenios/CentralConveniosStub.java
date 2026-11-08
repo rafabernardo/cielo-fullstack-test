@@ -4,6 +4,10 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -25,7 +29,8 @@ public final class CentralConveniosStub {
 	public static final Duration READ_TIMEOUT = Duration.ofMillis(500);
 
 	private static final AtomicReference<HttpHandler> BEHAVIOR = new AtomicReference<>();
-	private static final AtomicReference<ReceivedRequest> LAST_REQUEST = new AtomicReference<>();
+	private static final Map<String, HttpHandler> ROUTES = new ConcurrentHashMap<>();
+	private static final List<ReceivedRequest> REQUESTS = new CopyOnWriteArrayList<>();
 	private static final HttpServer SERVER = start();
 
 	private CentralConveniosStub() {
@@ -37,7 +42,8 @@ public final class CentralConveniosStub {
 	}
 
 	public static void reset() {
-		LAST_REQUEST.set(null);
+		ROUTES.clear();
+		REQUESTS.clear();
 		respond(500, "{\"erro\":\"Stub not configured for this test\"}");
 	}
 
@@ -52,13 +58,30 @@ public final class CentralConveniosStub {
 		});
 	}
 
+	/** Answers only requests to {@code method path}; other requests fall back to the default behavior. */
+	public static void respondTo(String method, String path, int status, String body) {
+		ROUTES.put(method + " " + path, exchange -> send(exchange, status, body));
+	}
+
+	public static void respondToAfter(String method, String path, Duration delay, int status, String body) {
+		ROUTES.put(method + " " + path, exchange -> {
+			sleep(delay);
+			send(exchange, status, body);
+		});
+	}
+
 	public static void dropConnection() {
 		BEHAVIOR.set(HttpExchange::close);
 	}
 
 	/** The last request the Central received, or {@code null} when it was not called. */
 	public static ReceivedRequest lastRequest() {
-		return LAST_REQUEST.get();
+		return REQUESTS.isEmpty() ? null : REQUESTS.getLast();
+	}
+
+	/** Every request the Central received since the last reset, in arrival order. */
+	public static List<ReceivedRequest> requests() {
+		return List.copyOf(REQUESTS);
 	}
 
 	private static void send(HttpExchange exchange, int status, String body) throws IOException {
@@ -84,8 +107,8 @@ public final class CentralConveniosStub {
 			server.createContext("/", exchange -> {
 				var body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
 				var path = exchange.getRequestURI().getPath();
-				LAST_REQUEST.set(new ReceivedRequest(exchange.getRequestMethod(), path, body));
-				BEHAVIOR.get().handle(exchange);
+				REQUESTS.add(new ReceivedRequest(exchange.getRequestMethod(), path, body));
+				ROUTES.getOrDefault(exchange.getRequestMethod() + " " + path, BEHAVIOR.get()).handle(exchange);
 			});
 			// Concurrent handling, so a slow "timeout" response never delays requests of the following tests.
 			server.setExecutor(Executors.newCachedThreadPool());
