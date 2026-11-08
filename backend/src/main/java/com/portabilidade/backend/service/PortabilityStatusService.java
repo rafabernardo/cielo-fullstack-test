@@ -79,12 +79,12 @@ public class PortabilityStatusService {
 		}
 	}
 
-	// Skips a stale result: the operation may have moved on meanwhile (e.g. failed and resubmitted, new protocol).
+	// Skips a stale result: the operation may have left PENDING meanwhile.
 	private void transition(PortabilityOperation checked, Consumer<PortabilityOperation> change) {
 		try {
 			transaction.executeWithoutResult(status -> {
 				var current = operationRepository.findById(checked.getId()).orElseThrow();
-				if (current.isPendingWith(checked.getProtocol())) {
+				if (current.isPending()) {
 					transitions.apply(current, change);
 				}
 			});

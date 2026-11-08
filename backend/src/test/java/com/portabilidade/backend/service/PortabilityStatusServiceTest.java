@@ -8,8 +8,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.util.UUID;
-
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -172,7 +170,6 @@ class PortabilityStatusServiceTest {
 	private String submittedOperation(String installmentId, String protocol) throws Exception {
 		CentralConveniosStub.respondTo("POST", "/operacoes-portabilidade", 202, "{\"protocolo\":\"" + protocol + "\"}");
 		var result = mockMvc.perform(post("/api/portability-operations")
-						.header("Idempotency-Key", UUID.randomUUID().toString())
 						.contentType(MediaType.APPLICATION_JSON)
 						.content("{\"beneficiaryId\":\"BEN001\",\"installmentIds\":[\"" + installmentId + "\"],"
 								+ "\"destinationAccount\":{\"bankCode\":\"001\",\"branch\":\"1234\","

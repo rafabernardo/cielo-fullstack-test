@@ -3,6 +3,7 @@ package com.portabilidade.backend.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.matchesPattern;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -38,6 +39,7 @@ import com.portabilidade.backend.integration.centralconvenios.CentralConveniosSt
 import com.portabilidade.backend.repository.AuthorizationRepository;
 import com.portabilidade.backend.repository.InstallmentLockRepository;
 import com.portabilidade.backend.repository.PortabilityOperationRepository;
+import com.portabilidade.backend.service.PortabilityStatusService;
 
 // Exercises portability operation creation end to end; only the Central de Convênios is faked, over real HTTP.
 @SpringBootTest
@@ -68,6 +70,9 @@ class PortabilityOperationControllerTest {
 	@Autowired
 	private InstallmentLockRepository installmentLockRepository;
 
+	@Autowired
+	private PortabilityStatusService portabilityStatusService;
+
 	@DynamicPropertySource
 	static void centralProperties(DynamicPropertyRegistry registry) {
 		CentralConveniosStub.registerProperties(registry);
@@ -92,9 +97,7 @@ class PortabilityOperationControllerTest {
 
 	@Test
 	void createsPendingOperationAndSubmitsItToCentral() throws Exception {
-		var key = UUID.randomUUID();
-
-		var result = create(key, requestFor("P001", "P002"));
+		var result = create(requestFor("P001", "P002"));
 
 		result.andExpect(status().isAccepted())
 				.andExpect(header().string("Location", matchesPattern(
@@ -113,7 +116,7 @@ class PortabilityOperationControllerTest {
 
 	@Test
 	void readsStoredOperationWithoutCallingCentralAndAsksToRetrySoonWhileDueForCheck() throws Exception {
-		var id = idOf(create(UUID.randomUUID(), requestFor("P001")).andReturn());
+		var id = idOf(create(requestFor("P001")).andReturn());
 		var requestsBeforeRead = CentralConveniosStub.requests().size();
 
 		var result = mockMvc.perform(get("/api/portability-operations/{id}", id));
@@ -134,33 +137,11 @@ class PortabilityOperationControllerTest {
 	}
 
 	@Test
-	void requiresIdempotencyKey() throws Exception {
-		var result = mockMvc.perform(post("/api/portability-operations")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(requestFor("P001")));
-
-		result.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REQUIRED"));
-		assertThat(operationRepository.count()).isZero();
-	}
-
-	@Test
-	void rejectsIdempotencyKeyThatIsNotUuid() throws Exception {
-		var result = mockMvc.perform(post("/api/portability-operations")
-				.header("Idempotency-Key", "not-a-uuid")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content(requestFor("P001")));
-
-		result.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REQUIRED"));
-	}
-
-	@Test
 	void rejectsEmptyAndDuplicatedInstallmentsAndMalformedAccount() throws Exception {
-		var empty = create(UUID.randomUUID(), "{\"beneficiaryId\":\"BEN001\",\"installmentIds\":[],"
+		var empty = create("{\"beneficiaryId\":\"BEN001\",\"installmentIds\":[],"
 				+ "\"destinationAccount\":" + ACCOUNT + "}");
-		var duplicated = create(UUID.randomUUID(), requestFor("P001", "P001"));
-		var badAccount = create(UUID.randomUUID(), "{\"beneficiaryId\":\"BEN001\",\"installmentIds\":[\"P001\"],"
+		var duplicated = create(requestFor("P001", "P001"));
+		var badAccount = create("{\"beneficiaryId\":\"BEN001\",\"installmentIds\":[\"P001\"],"
 				+ "\"destinationAccount\":{\"bankCode\":\"1\",\"branch\":\"12a4\",\"accountNumber\":\"\"}}");
 
 		empty.andExpect(status().isBadRequest())
@@ -179,7 +160,7 @@ class PortabilityOperationControllerTest {
 	void requiresAuthorizationOfBeneficiary() throws Exception {
 		authorizationRepository.deleteAll();
 
-		var result = create(UUID.randomUUID(), requestFor("P001"));
+		var result = create(requestFor("P001"));
 
 		result.andExpect(status().isUnprocessableContent())
 				.andExpect(jsonPath("$.code").value("AUTHORIZATION_REQUIRED"));
@@ -189,7 +170,7 @@ class PortabilityOperationControllerTest {
 
 	@Test
 	void rejectsInstallmentsMissingFromSchedule() throws Exception {
-		var result = create(UUID.randomUUID(), requestFor("P001", "P999"));
+		var result = create(requestFor("P001", "P999"));
 
 		result.andExpect(status().isUnprocessableContent())
 				.andExpect(jsonPath("$.code").value("INSTALLMENT_NOT_ELIGIBLE"))
@@ -201,7 +182,7 @@ class PortabilityOperationControllerTest {
 	void storesNothingWhenCentralIsUnavailableWhileValidatingSchedule() throws Exception {
 		CentralConveniosStub.respondTo("GET", SCHEDULE_PATH, 503, UNAVAILABLE);
 
-		var result = create(UUID.randomUUID(), requestFor("P001"));
+		var result = create(requestFor("P001"));
 
 		result.andExpect(status().isServiceUnavailable())
 				.andExpect(jsonPath("$.code").value("CENTRAL_CONVENIOS_UNAVAILABLE"));
@@ -213,7 +194,7 @@ class PortabilityOperationControllerTest {
 	void failsOperationAndReleasesInstallmentsWhenCentralRefusesSubmission() throws Exception {
 		CentralConveniosStub.respondTo("POST", SUBMIT_PATH, 503, UNAVAILABLE);
 
-		var result = create(UUID.randomUUID(), requestFor("P001"));
+		var result = create(requestFor("P001"));
 
 		result.andExpect(status().isServiceUnavailable())
 				.andExpect(jsonPath("$.code").value("CENTRAL_CONVENIOS_UNAVAILABLE"))
@@ -228,7 +209,7 @@ class PortabilityOperationControllerTest {
 	void failsOperationAndReleasesInstallmentsWhenCentralAnswersSubmissionUnexpectedly() throws Exception {
 		CentralConveniosStub.respondTo("POST", SUBMIT_PATH, 202, "{}");
 
-		var result = create(UUID.randomUUID(), requestFor("P001"));
+		var result = create(requestFor("P001"));
 
 		result.andExpect(status().isBadGateway())
 				.andExpect(jsonPath("$.code").value("CENTRAL_CONVENIOS_BAD_RESPONSE"));
@@ -238,107 +219,145 @@ class PortabilityOperationControllerTest {
 	}
 
 	@Test
-	void returnsExistingOperationWhenIdempotencyKeyIsRepeated() throws Exception {
-		var key = UUID.randomUUID();
-		var firstId = idOf(create(key, requestFor("P001", "P002")).andReturn());
+	void rejectsRepeatedRequestPointingToOperationThatHoldsItsInstallments() throws Exception {
+		var firstId = idOf(create(requestFor("P001", "P002")).andReturn());
 
-		var replay = create(key, requestFor("P002", "P001"));
+		var repeated = create(requestFor("P002", "P001"));
 
-		replay.andExpect(status().isOk())
-				.andExpect(jsonPath("$.id").value(firstId));
+		repeated.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("INSTALLMENT_IN_OPERATION"))
+				.andExpect(jsonPath("$.installmentIds").value(contains("P002", "P001")))
+				.andExpect(jsonPath("$.operationIds").value(contains(firstId)));
 		assertThat(operationRepository.count()).isOne();
 		assertThat(submissions()).hasSize(1);
 	}
 
 	@Test
-	void rejectsIdempotencyKeyReusedWithDifferentPayload() throws Exception {
-		var key = UUID.randomUUID();
-		create(key, requestFor("P001"));
+	void ignoresIdempotencyKeySentByOlderClients() throws Exception {
+		var result = mockMvc.perform(post("/api/portability-operations")
+				.header("Idempotency-Key", "not-a-uuid")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(requestFor("P001")));
 
-		var result = create(key, requestFor("P002"));
+		result.andExpect(status().isAccepted());
+	}
 
-		result.andExpect(status().isUnprocessableContent())
-				.andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REUSED"));
+	@Test
+	void rejectsSameInstallmentsWithAnotherDestinationAccount() throws Exception {
+		var firstId = idOf(create(requestFor("P001")).andReturn());
+
+		var result = create("{\"beneficiaryId\":\"BEN001\",\"installmentIds\":[\"P001\"],"
+				+ "\"destinationAccount\":{\"bankCode\":\"341\",\"branch\":\"0001\",\"accountNumber\":\"1\"}}");
+
+		result.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("INSTALLMENT_IN_OPERATION"))
+				.andExpect(jsonPath("$.operationIds").value(contains(firstId)));
 		assertThat(operationRepository.count()).isOne();
 	}
 
 	@Test
-	void resubmitsFailedOperationWhenRetriedWithSameKey() throws Exception {
-		var key = UUID.randomUUID();
+	void pointsToEveryOperationHoldingRequestedInstallments() throws Exception {
+		var firstId = idOf(create(requestFor("P001")).andReturn());
+		var secondId = idOf(create(requestFor("P002")).andReturn());
+
+		var result = create(requestFor("P001", "P002"));
+
+		result.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.installmentIds").value(contains("P001", "P002")))
+				.andExpect(jsonPath("$.operationIds").value(contains(firstId, secondId)));
+	}
+
+	@Test
+	void rejectsInstallmentsOfConfirmedOperation() throws Exception {
+		var confirmedId = idOf(create(requestFor("P001")).andReturn());
+		centralAnswersStatus("{\"status\":\"CONFIRMADA\",\"motivoRejeicao\":null}");
+		mockMvc.perform(get("/api/portability-operations/{id}", confirmedId))
+				.andExpect(jsonPath("$.status").value("CONFIRMED"));
+
+		var result = create(requestFor("P001"));
+
+		result.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("INSTALLMENT_IN_OPERATION"))
+				.andExpect(jsonPath("$.operationIds").value(contains(confirmedId)));
+	}
+
+	@Test
+	void createsNewOperationForInstallmentsOfRejectedOperation() throws Exception {
+		var rejectedId = idOf(create(requestFor("P001")).andReturn());
+		centralAnswersStatus("{\"status\":\"REJEITADA\",\"motivoRejeicao\":\"Sem margem\"}");
+
+		var result = create(requestFor("P001"));
+
+		result.andExpect(status().isAccepted())
+				.andExpect(jsonPath("$.id").value(not(rejectedId)))
+				.andExpect(jsonPath("$.status").value("PENDING"));
+		assertThat(operationRepository.count()).isEqualTo(2);
+	}
+
+	@Test
+	void createsNewOperationForInstallmentsOfFailedOperation() throws Exception {
 		CentralConveniosStub.respondTo("POST", SUBMIT_PATH, 503, UNAVAILABLE);
-		create(key, requestFor("P001")).andExpect(status().isServiceUnavailable());
+		create(requestFor("P001")).andExpect(status().isServiceUnavailable());
 		var failedId = operationRepository.findAll().getFirst().getId().toString();
 		centralAcceptsSubmissions();
 
-		var retry = create(key, requestFor("P001"));
+		var result = create(requestFor("P001"));
 
-		retry.andExpect(status().isAccepted())
-				.andExpect(jsonPath("$.id").value(failedId))
+		result.andExpect(status().isAccepted())
+				.andExpect(jsonPath("$.id").value(not(failedId)))
 				.andExpect(jsonPath("$.status").value("PENDING"));
+		assertThat(operationRepository.count()).isEqualTo(2);
+		assertThat(operationRepository.findById(UUID.fromString(failedId)).orElseThrow().getStatus())
+				.isEqualTo(PortabilityOperationStatus.FAILED);
+	}
+
+	@Test
+	void reportsInstallmentsMissingFromScheduleBeforeInstallmentsInOperation() throws Exception {
+		create(requestFor("P001"));
+
+		var result = create(requestFor("P001", "P999"));
+
+		result.andExpect(status().isUnprocessableContent())
+				.andExpect(jsonPath("$.code").value("INSTALLMENT_NOT_ELIGIBLE"))
+				.andExpect(jsonPath("$.installmentIds").value(contains("P999")));
+	}
+
+	@Test
+	void createsOneOperationForConcurrentIdenticalRequests() throws Exception {
+		CentralConveniosStub.respondToAfter("GET", SCHEDULE_PATH, Duration.ofMillis(200), 200, BEN001_AGENDA);
+
+		var results = inParallel(() -> create(requestFor("P001")).andReturn(),
+				() -> create(requestFor("P001")).andReturn());
+
+		assertThat(results).extracting(result -> result.getResponse().getStatus())
+				.containsExactlyInAnyOrder(202, 409);
+		var created = results.stream().filter(result -> result.getResponse().getStatus() == 202).findFirst()
+				.orElseThrow();
+		var refused = results.stream().filter(result -> result.getResponse().getStatus() == 409).findFirst()
+				.orElseThrow();
+		assertThat(JsonPath.<List<String>>read(refused.getResponse().getContentAsString(), "$.operationIds"))
+				.containsExactly(idOf(created));
 		assertThat(operationRepository.count()).isOne();
-		assertThat(submissions()).hasSize(2);
-		schedule().andExpect(jsonPath("$.installments[0].eligible").value(false));
+		assertThat(submissions()).hasSize(1);
 	}
 
 	@Test
 	void rejectsInstallmentAlreadyInActiveOperation() throws Exception {
-		create(UUID.randomUUID(), requestFor("P001"));
+		var firstId = idOf(create(requestFor("P001")).andReturn());
 
-		var result = create(UUID.randomUUID(), requestFor("P001", "P002"));
+		var result = create(requestFor("P001", "P002"));
 
 		result.andExpect(status().isConflict())
 				.andExpect(jsonPath("$.code").value("INSTALLMENT_IN_OPERATION"))
-				.andExpect(jsonPath("$.installmentIds").value(contains("P001")));
+				.andExpect(jsonPath("$.installmentIds").value(contains("P001")))
+				.andExpect(jsonPath("$.operationIds").value(contains(firstId)));
 		assertThat(operationRepository.count()).isOne();
 		schedule().andExpect(jsonPath("$.installments[0].eligible").value(false))
 				.andExpect(jsonPath("$.installments[1].eligible").value(true));
 	}
 
-	@Test
-	void rejectsRetryWhenInstallmentWasTakenMeanwhile() throws Exception {
-		var key = UUID.randomUUID();
-		CentralConveniosStub.respondTo("POST", SUBMIT_PATH, 503, UNAVAILABLE);
-		create(key, requestFor("P001"));
-		centralAcceptsSubmissions();
-		create(UUID.randomUUID(), requestFor("P001"));
-
-		var retry = create(key, requestFor("P001"));
-
-		retry.andExpect(status().isConflict())
-				.andExpect(jsonPath("$.code").value("INSTALLMENT_IN_OPERATION"));
-	}
-
-	@Test
-	void createsOneOperationForConcurrentRequestsWithSameKey() throws Exception {
-		CentralConveniosStub.respondToAfter("GET", SCHEDULE_PATH, Duration.ofMillis(200), 200, BEN001_AGENDA);
-		var key = UUID.randomUUID();
-
-		var results = inParallel(() -> create(key, requestFor("P001")).andReturn(),
-				() -> create(key, requestFor("P001")).andReturn());
-
-		assertThat(results).extracting(result -> result.getResponse().getStatus())
-				.containsExactlyInAnyOrder(202, 200);
-		assertThat(results).extracting(PortabilityOperationControllerTest::idOf).containsOnly(idOf(results.get(0)));
-		assertThat(operationRepository.count()).isOne();
-		assertThat(submissions()).hasSize(1);
-	}
-
-	@Test
-	void letsOnlyOneOfConcurrentOperationsTakeTheSameInstallment() throws Exception {
-		CentralConveniosStub.respondToAfter("GET", SCHEDULE_PATH, Duration.ofMillis(200), 200, BEN001_AGENDA);
-
-		var results = inParallel(() -> create(UUID.randomUUID(), requestFor("P001")).andReturn(),
-				() -> create(UUID.randomUUID(), requestFor("P001")).andReturn());
-
-		assertThat(results).extracting(result -> result.getResponse().getStatus())
-				.containsExactlyInAnyOrder(202, 409);
-		assertThat(operationRepository.count()).isOne();
-		assertThat(installmentLockRepository.count()).isOne();
-	}
-
-	private ResultActions create(UUID key, String body) throws Exception {
+	private ResultActions create(String body) throws Exception {
 		return mockMvc.perform(post("/api/portability-operations")
-				.header("Idempotency-Key", key.toString())
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(body));
 	}
@@ -351,6 +370,13 @@ class PortabilityOperationControllerTest {
 	private static String requestFor(String... installmentIds) {
 		var ids = String.join(",", List.of(installmentIds).stream().map(id -> "\"" + id + "\"").toList());
 		return "{\"beneficiaryId\":\"BEN001\",\"installmentIds\":[" + ids + "],\"destinationAccount\":" + ACCOUNT + "}";
+	}
+
+	// Lets the status job learn the Central's outcome for every submitted operation.
+	private void centralAnswersStatus(String body) {
+		operationRepository.findAll().forEach(operation -> CentralConveniosStub.respondTo("GET",
+				SUBMIT_PATH + "/" + operation.getProtocol(), 200, body));
+		portabilityStatusService.refreshPendingOperations();
 	}
 
 	private static void centralAcceptsSubmissions() {

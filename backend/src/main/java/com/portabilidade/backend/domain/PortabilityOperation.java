@@ -1,13 +1,9 @@
 package com.portabilidade.backend.domain;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 
@@ -32,12 +28,6 @@ public class PortabilityOperation {
 
 	@Id
 	private UUID id;
-
-	@Column(nullable = false, unique = true)
-	private UUID idempotencyKey;
-
-	@Column(nullable = false)
-	private String requestFingerprint;
 
 	@Column(nullable = false)
 	private String beneficiaryId;
@@ -74,37 +64,15 @@ public class PortabilityOperation {
 	protected PortabilityOperation() {
 	}
 
-	public PortabilityOperation(UUID idempotencyKey, String beneficiaryId, List<String> installmentIds,
+	public PortabilityOperation(String beneficiaryId, List<String> installmentIds,
 			DestinationAccount destinationAccount) {
 		this.id = UUID.randomUUID();
-		this.idempotencyKey = idempotencyKey;
-		this.requestFingerprint = fingerprintOf(beneficiaryId, installmentIds, destinationAccount);
 		this.beneficiaryId = beneficiaryId;
 		this.installmentIds = new ArrayList<>(installmentIds);
 		this.destinationAccount = destinationAccount;
 		this.status = PortabilityOperationStatus.PENDING;
 		this.createdAt = Instant.now();
 		this.updatedAt = createdAt;
-	}
-
-	/**
-	 * Identifies the intent of a request regardless of installment order, to tell an idempotent replay from a key
-	 * reused with a different payload.
-	 */
-	public static String fingerprintOf(String beneficiaryId, List<String> installmentIds,
-			DestinationAccount account) {
-		var normalized = String.join("|", beneficiaryId, String.join(",", installmentIds.stream().sorted().toList()),
-				account.getBankCode(), account.getBranch(), account.getAccountNumber());
-		try {
-			var digest = MessageDigest.getInstance("SHA-256").digest(normalized.getBytes(StandardCharsets.UTF_8));
-			return HexFormat.of().formatHex(digest);
-		} catch (NoSuchAlgorithmException e) {
-			throw new IllegalStateException("SHA-256 is required by every JVM", e);
-		}
-	}
-
-	public boolean hasFingerprint(String fingerprint) {
-		return requestFingerprint.equals(fingerprint);
 	}
 
 	public void markSubmitted(String protocol) {
@@ -144,17 +112,6 @@ public class PortabilityOperation {
 		touch();
 	}
 
-	public void retry() {
-		if (status != PortabilityOperationStatus.FAILED) {
-			throw new IllegalStateException("Only a failed operation can be retried; operation " + id + " is "
-					+ status);
-		}
-		this.status = PortabilityOperationStatus.PENDING;
-		this.protocol = null;
-		this.nextCheckAt = null;
-		touch();
-	}
-
 	public boolean isPending() {
 		return status == PortabilityOperationStatus.PENDING;
 	}
@@ -171,15 +128,6 @@ public class PortabilityOperation {
 	/** Whether this operation keeps its installments locked: while pending, and for good once confirmed. */
 	public boolean isHoldingInstallments() {
 		return status == PortabilityOperationStatus.PENDING || status == PortabilityOperationStatus.CONFIRMED;
-	}
-
-	/** Whether it is still waiting on the submission identified by {@code protocol} (not resubmitted meanwhile). */
-	public boolean isPendingWith(String protocol) {
-		return isPending() && protocol != null && protocol.equals(this.protocol);
-	}
-
-	public boolean isFailed() {
-		return status == PortabilityOperationStatus.FAILED;
 	}
 
 	private void requirePending() {

@@ -1,12 +1,10 @@
 package com.portabilidade.backend.exception;
 
-import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -15,13 +13,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.MissingRequestHeaderException;
-import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
-import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 @RestControllerAdvice
@@ -35,11 +29,6 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 		return problem(HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage(), "AUTHORIZATION_REQUIRED");
 	}
 
-	@ExceptionHandler(IdempotencyKeyReusedException.class)
-	ProblemDetail handleIdempotencyKeyReused(IdempotencyKeyReusedException e) {
-		return problem(HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage(), "IDEMPOTENCY_KEY_REUSED");
-	}
-
 	@ExceptionHandler(InstallmentNotEligibleException.class)
 	ProblemDetail handleInstallmentNotEligible(InstallmentNotEligibleException e) {
 		var body = problem(HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage(), "INSTALLMENT_NOT_ELIGIBLE");
@@ -51,6 +40,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	ProblemDetail handleInstallmentInOperation(InstallmentInOperationException e) {
 		var body = problem(HttpStatus.CONFLICT, e.getMessage(), "INSTALLMENT_IN_OPERATION");
 		body.setProperty("installmentIds", e.getInstallmentIds());
+		body.setProperty("operationIds", e.getOperationIds());
 		return body;
 	}
 
@@ -92,26 +82,6 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 		return handleExceptionInternal(ex, body, headers, status, request);
 	}
 
-	@Override
-	protected ResponseEntity<Object> handleServletRequestBindingException(ServletRequestBindingException ex,
-			HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-		if (ex instanceof MissingRequestHeaderException missing) {
-			return headerProblem(ex, missing.getHeaderName(), headers, status, request);
-		}
-		return super.handleServletRequestBindingException(ex, headers, status, request);
-	}
-
-	@Override
-	protected ResponseEntity<Object> handleTypeMismatch(TypeMismatchException ex, HttpHeaders headers,
-			HttpStatusCode status, WebRequest request) {
-		if (ex instanceof MethodArgumentTypeMismatchException mismatch
-				&& mismatch.getParameter().getParameterAnnotation(RequestHeader.class)
-						instanceof RequestHeader header) {
-			return headerProblem(ex, header.value(), headers, status, request);
-		}
-		return super.handleTypeMismatch(ex, headers, status, request);
-	}
-
 	// Gives the standard Spring MVC problems (404, 405, 415...) a machine-readable code as well.
 	@Override
 	protected ResponseEntity<Object> handleExceptionInternal(Exception ex, Object body, HttpHeaders headers,
@@ -121,14 +91,6 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 			problem.setProperty(CODE, HttpStatus.valueOf(statusCode.value()).name());
 		}
 		return super.handleExceptionInternal(ex, body, headers, statusCode, request);
-	}
-
-	// Missing or malformed required header -> 400 <HEADER>_REQUIRED, e.g. Idempotency-Key -> IDEMPOTENCY_KEY_REQUIRED.
-	private ResponseEntity<Object> headerProblem(Exception ex, String headerName, HttpHeaders headers,
-			HttpStatusCode status, WebRequest request) {
-		var code = headerName.toUpperCase(Locale.ROOT).replace('-', '_') + "_REQUIRED";
-		var body = problem(HttpStatus.BAD_REQUEST, "Header " + headerName + " is required and must be valid.", code);
-		return handleExceptionInternal(ex, body, headers, status, request);
 	}
 
 	private String messageOf(FieldError error) {

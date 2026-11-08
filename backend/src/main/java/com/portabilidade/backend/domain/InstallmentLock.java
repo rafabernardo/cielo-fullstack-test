@@ -37,4 +37,8 @@ public class InstallmentLock {
 		return installmentId;
 	}
 
+	public UUID getOperationId() {
+		return operationId;
+	}
+
 }

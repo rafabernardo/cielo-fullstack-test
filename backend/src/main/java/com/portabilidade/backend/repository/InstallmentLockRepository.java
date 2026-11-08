@@ -14,6 +14,8 @@ public interface InstallmentLockRepository extends JpaRepository<InstallmentLock
 	@Query("select lock.installmentId from InstallmentLock lock where lock.installmentId in :installmentIds")
 	List<String> findLockedInstallmentIds(Collection<String> installmentIds);
 
+	List<InstallmentLock> findByInstallmentIdIn(Collection<String> installmentIds);
+
 	void deleteByOperationId(UUID operationId);
 
 }

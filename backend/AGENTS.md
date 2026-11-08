@@ -81,7 +81,7 @@ These rules are enforced by `ArchitectureTest` (ArchUnit) and run with `./mvnw t
 1. **Interfaces only at real boundaries.** A gateway interface exists for each external system so it can be replaced in tests. Classes with a single implementation (services, mappers, helpers) do not get an interface.
 2. **Rich domain, thin services.** State changes are entity methods (e.g. `entity.approve()`, `entity.reject(reason)`). Invalid transitions throw `IllegalStateException`. Services orchestrate; they never assign state fields directly.
 3. **Single responsibility per service.** One service per use case or cohesive group of use cases; split when a class gains a second reason to change.
-4. **Idempotent writes.** Endpoints that create resources as a result of user actions accept an `Idempotency-Key` header, stored in a `UNIQUE` column. The record is committed before any side effect, so concurrent duplicates fail on the constraint. Same key + same payload returns the existing resource; same key + different payload is rejected.
+4. **Duplicates fail on a natural key.** A write that must not happen twice is guarded by a `UNIQUE` constraint on what makes it unique in the domain (e.g. one lock row per installment), never by a client-generated key. The guard is committed before any side effect, so concurrent duplicates fail on the constraint; the conflict response points to the resource that already holds it (e.g. `operationIds`).
 5. **No remote calls inside a database transaction.** Calls to gateways happen outside `@Transactional` boundaries; persist before and after in separate short transactions.
 6. **Optimistic locking** (`@Version`) on entities that can be updated concurrently; on conflict, reload and return the current state.
 7. **Configuration** comes from `@ConfigurationProperties` records grouped by prefix. No `@Value` scattered across classes. No hard-coded URLs, timeouts, or secrets.
@@ -118,8 +118,8 @@ These rules are enforced by `ArchitectureTest` (ArchUnit) and run with `./mvnw t
 ### Testing
 
 - Every main flow and every error scenario has at least one test.
-- Idempotency and concurrency rules have dedicated tests.
-- Test names describe behavior (e.g. `returnsExistingResourceWhenIdempotencyKeyIsRepeated`).
+- Duplicate-guard and concurrency rules have dedicated tests.
+- Test names describe behavior (e.g. `rejectsRepeatedRequestPointingToOperationThatHoldsItsInstallments`).
 - Arrange / Act / Assert blocks separated by blank lines.
 - No `@Disabled`, no skipped tests, no tests without assertions.
 
@@ -137,13 +137,11 @@ These rules are enforced by `ArchitectureTest` (ArchUnit) and run with `./mvnw t
 | Read succeeded                                    | `200`         |
 | Resource created synchronously                    | `201` + `Location` header |
 | Request accepted, processing continues async      | `202`         |
-| Idempotent replay of an existing resource         | `200`         |
 | Async resource still processing                   | `200` with current state + `Retry-After` header |
 | Delete / action with no body                      | `204`         |
 
 ### Headers
 
-- `Idempotency-Key` (UUID) on non-idempotent `POST`s that create resources.
 - `Retry-After` (seconds) when the client should poll again.
 
 ## Error Handling
@@ -158,11 +156,9 @@ These rules are enforced by `ArchitectureTest` (ArchUnit) and run with `./mvnw t
 | Exception category                      | HTTP  | `code` example            |
 |-----------------------------------------|-------|---------------------------|
 | `MethodArgumentNotValidException`       | `400` | `VALIDATION_ERROR` (with `errors` listing field messages) |
-| Missing/invalid required header         | `400` | `<HEADER>_REQUIRED`       |
 | Resource not found                      | `404` | `<RESOURCE>_NOT_FOUND`    |
 | Conflict with current state             | `409` | `<RESOURCE>_CONFLICT`     |
 | Business rule violation                 | `422` | `<RULE>_VIOLATED`         |
-| Idempotency key reused with new payload | `422` | `IDEMPOTENCY_KEY_REUSED`  |
 | External system bad/unexpected response | `502` | `<EXTERNAL>_BAD_RESPONSE` |
 | External system unavailable / timeout   | `503` | `<EXTERNAL>_UNAVAILABLE`  |
 | Any other `Exception`                   | `500` | `INTERNAL_ERROR`          |
@@ -173,6 +169,6 @@ These rules are enforced by `ArchitectureTest` (ArchUnit) and run with `./mvnw t
   - `2xx` → contract record.
   - `5xx`, timeouts, connection refused (`ResourceAccessException`) → `*UnavailableException`, carrying the external error message when present.
   - Unexpected `4xx` or unparseable body → `*BadResponseException`.
-- A failed outbound call after a local write leaves the record in an explicit failure state with an event, so the client can retry safely with the same idempotency key.
+- A failed outbound call after a local write leaves the record in an explicit failure state with an event and releases what it held, so the client can safely send a new request.
 - When a read depends on an external refresh that fails, return the last known state with a flag indicating it may be stale, instead of failing the whole request.
 - Integration failures are logged at `WARN` with correlation identifiers; never log secrets or sensitive personal/financial data.

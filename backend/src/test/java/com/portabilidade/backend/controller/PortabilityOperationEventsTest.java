@@ -129,7 +129,6 @@ class PortabilityOperationEventsTest {
 
 	private String createOperation() throws Exception {
 		var result = mockMvc.perform(post("/api/portability-operations")
-						.header("Idempotency-Key", UUID.randomUUID().toString())
 						.contentType(MediaType.APPLICATION_JSON)
 						.content("{\"beneficiaryId\":\"BEN001\",\"installmentIds\":[\"P001\"],\"destinationAccount\":"
 								+ "{\"bankCode\":\"001\",\"branch\":\"1234\",\"accountNumber\":\"123456-7\"}}"))
