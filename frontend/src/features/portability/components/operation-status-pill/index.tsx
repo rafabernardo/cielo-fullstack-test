@@ -16,5 +16,8 @@ const TONES: Record<OperationStatus, string> = {
 };
 
 export const OperationStatusPill = ({ status }: { status: OperationStatus }) => (
-  <span className={`${styles.operationStatusPill} ${TONES[status]}`}>{LABELS[status]}</span>
+  <span className={`${styles.operationStatusPill} ${TONES[status]}`}>
+    {status === 'PENDING' && <span className={styles.spinner} aria-hidden="true" />}
+    {LABELS[status]}
+  </span>
 );

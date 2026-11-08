@@ -58,6 +58,30 @@ const consult = async (beneficiaryId: string) => {
   return user;
 };
 
+const OPERATIONS_URL = '/api/portability-operations';
+
+// Answers POST /portability-operations with `respond`; every operation it creates (202) is listed in
+// the history, newest first, as the backend does.
+const operationsBackend = (
+  respond: (info: { request: Request }) => Response | Promise<Response>,
+) => {
+  const created: PortabilityOperation[] = [];
+  let historyReads = 0;
+  server.use(
+    http.post(OPERATIONS_URL, async (info) => {
+      const response = await respond(info);
+      if (response.status === 202) created.unshift(await response.clone().json());
+      return response;
+    }),
+    http.get(HISTORY_URL, () => (historyReads++, historyPage(created))),
+  );
+  return { historyReads: () => historyReads };
+};
+
+const history = () => screen.getByRole('region', { name: 'Histórico de portabilidade' });
+const findHistoryRow = (name: RegExp) =>
+  waitFor(() => within(history()).getByRole('row', { name }));
+
 describe('PortabilityPage — beneficiary and opt-in', () => {
   test('asks for opt-in before reading the schedule, then loads it', async () => {
     let authorizedBody: unknown;
@@ -186,9 +210,13 @@ describe('PortabilityPage — beneficiary and opt-in', () => {
   test('requires a beneficiary before consulting', async () => {
     renderWithProviders(<PortabilityPage />);
 
+    expect(screen.queryByText(/BEN001 → confirma/)).not.toBeInTheDocument();
     await consult('   ');
 
     expect(screen.getByText('Informe o beneficiário.')).toBeInTheDocument();
+    expect(screen.getByLabelText('Beneficiário')).toHaveAccessibleDescription(
+      /Informe o beneficiário\. BEN001 → confirma/,
+    );
   });
 });
 
@@ -270,10 +298,9 @@ describe('PortabilityPage — schedule and selection', () => {
 });
 
 describe('PortabilityPage — destination account and request', () => {
-  const OPERATIONS_URL = '/api/portability-operations';
   const EVENTS_URL = '/api/portability-operations/:id/events';
 
-  const operation = (id: string) => ({
+  const operation = (id: string): PortabilityOperation => ({
     id,
     beneficiaryId: 'BEN001',
     installmentIds: ['P001'],
@@ -310,13 +337,21 @@ describe('PortabilityPage — destination account and request', () => {
 
   const requestButton = () => screen.getByRole('button', { name: 'Solicitar portabilidade' });
 
-  test('keeps the request disabled until an installment is selected', async () => {
+  test('asks for the destination account only once an installment is selected', async () => {
     window.history.replaceState(null, '', '/?beneficiary=BEN001');
     server.use(http.get(SCHEDULE_URL, () => HttpResponse.json(schedule('BEN001'))));
     renderWithProviders(<PortabilityPage />);
+    const user = userEvent.setup();
     await findScheduleTable();
 
-    expect(requestButton()).toBeDisabled();
+    expect(screen.queryByRole('group', { name: 'Conta de destino' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Solicitar portabilidade' }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByLabelText('Selecionar parcela P001'));
+
+    expect(screen.getByRole('group', { name: 'Conta de destino' })).toBeInTheDocument();
+    expect(requestButton()).toBeEnabled();
   });
 
   test('validates the account before sending anything', async () => {
@@ -357,14 +392,12 @@ describe('PortabilityPage — destination account and request', () => {
 
   test('offers a retry when the Central is unavailable and creates the operation on retry', async () => {
     const bodies: unknown[] = [];
-    server.use(
-      http.post(OPERATIONS_URL, async ({ request }) => {
-        bodies.push(await request.json());
-        return bodies.length === 1
-          ? problem(503, 'CENTRAL_CONVENIOS_UNAVAILABLE')
-          : HttpResponse.json(operation('op-1'), { status: 202 });
-      }),
-    );
+    operationsBackend(async ({ request }) => {
+      bodies.push(await request.json());
+      return bodies.length === 1
+        ? problem(503, 'CENTRAL_CONVENIOS_UNAVAILABLE')
+        : HttpResponse.json(operation('op-1'), { status: 202 });
+    });
     const user = await selectInstallment();
 
     await fillAccount(user);
@@ -374,9 +407,7 @@ describe('PortabilityPage — destination account and request', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Tentar novamente' }));
 
-    expect(await screen.findByRole('heading', { name: /Operação op-1/ })).toHaveTextContent(
-      'Pendente',
-    );
+    expect(await findHistoryRow(/P001.*Pendente/)).toBeInTheDocument();
     expect(bodies).toEqual([
       {
         beneficiaryId: 'BEN001',
@@ -415,30 +446,28 @@ describe('PortabilityPage — destination account and request', () => {
 
   test('sends a single request when the button is clicked twice', async () => {
     let posts = 0;
-    server.use(
-      http.post(OPERATIONS_URL, async () => {
-        posts++;
-        await delay(50);
-        return HttpResponse.json(operation('op-1'), { status: 202 });
-      }),
-    );
+    operationsBackend(async () => {
+      posts++;
+      await delay(50);
+      return HttpResponse.json(operation('op-1'), { status: 202 });
+    });
     const user = await selectInstallment();
 
     await fillAccount(user);
     await user.dblClick(requestButton());
 
-    expect(await screen.findByRole('heading', { name: /Operação op-1/ })).toBeInTheDocument();
+    expect(await findHistoryRow(/P001/)).toBeInTheDocument();
     expect(posts).toBe(1);
   });
 });
 
-describe('PortabilityPage — following the operation', () => {
+describe('PortabilityPage — following operations in the history', () => {
   const EVENTS_URL = '/api/portability-operations/:id/events';
 
-  const pending = (id: string): PortabilityOperation => ({
+  const pending = (id: string, installmentIds = ['P001']): PortabilityOperation => ({
     id,
     beneficiaryId: 'BEN001',
-    installmentIds: ['P001'],
+    installmentIds,
     destinationAccount: { bankCode: '341', branch: '0001', accountNumber: '123456-7' },
     status: 'PENDING',
     rejectionReason: null,
@@ -468,8 +497,8 @@ describe('PortabilityPage — following the operation', () => {
         scheduleReads++;
         return HttpResponse.json(schedule('BEN001'));
       }),
-      http.post('/api/portability-operations', postResponse),
     );
+    const backend = operationsBackend(postResponse);
     renderWithProviders(<PortabilityPage />);
     const user = userEvent.setup();
     await user.click(await screen.findByLabelText('Selecionar parcela P001'));
@@ -477,29 +506,26 @@ describe('PortabilityPage — following the operation', () => {
     await user.type(screen.getByLabelText('Agência'), '0001');
     await user.type(screen.getByLabelText('Conta'), '123456-7');
     await user.click(screen.getByRole('button', { name: 'Solicitar portabilidade' }));
-    return { user, scheduleReads: () => scheduleReads };
+    return { user, scheduleReads: () => scheduleReads, ...backend };
   };
 
-  test('waits for the Central and shows the confirmation', async () => {
+  test('shows the new request waiting for the Central, then its confirmation', async () => {
     server.use(streamStatus({ status: 'CONFIRMED' }));
 
     const { scheduleReads } = await requestPortability(() =>
       HttpResponse.json(pending('op-1'), { status: 202 }),
     );
 
-    expect(await screen.findByText(/Aguardando a Central…/)).toBeInTheDocument();
+    expect(await findHistoryRow(/P001.*Pendente.*Aguardando a Central · \d+s/)).toBeInTheDocument();
     // The requested installment leaves the selection; the schedule is read again.
     expect(screen.getByLabelText('Selecionar parcela P001')).not.toBeChecked();
-    expect(
-      await screen.findByText('Portabilidade confirmada para as parcelas P001.'),
-    ).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /Operação op-1/ })).toHaveTextContent('Confirmada');
+    expect(await findHistoryRow(/P001.*Confirmada/)).toBeInTheDocument();
     // Read on load, after the request and after the outcome.
     await waitFor(() => expect(scheduleReads()).toBe(3));
-    expect(screen.getByRole('button', { name: 'Nova portabilidade' })).toBeInTheDocument();
+    expect(history()).not.toHaveTextContent('op-1');
   });
 
-  test('lets other installments be requested while an operation is pending', async () => {
+  test('shows every pending request at once', async () => {
     const requested: string[][] = [];
     const installment = (installmentId: string) => ({
       ...schedule('BEN001').installments[0],
@@ -517,13 +543,14 @@ describe('PortabilityPage — following the operation', () => {
           installments: [installment('P001'), installment('P002')],
         }),
       ),
-      http.post('/api/portability-operations', async ({ request }) => {
-        const { installmentIds } = (await request.json()) as { installmentIds: string[] };
-        requested.push(installmentIds);
-        return HttpResponse.json(pending(`op-${requested.length}`), { status: 202 });
-      }),
-      streamStatus(),
+      // Both stay PENDING: the rows keep what the history listed.
+      sse(EVENTS_URL, () => {}),
     );
+    operationsBackend(async ({ request }) => {
+      const { installmentIds } = (await request.json()) as { installmentIds: string[] };
+      requested.push(installmentIds);
+      return HttpResponse.json(pending(`op-${requested.length}`, installmentIds), { status: 202 });
+    });
     renderWithProviders(<PortabilityPage />);
     const user = userEvent.setup();
     await user.click(await screen.findByLabelText('Selecionar parcela P001'));
@@ -531,17 +558,20 @@ describe('PortabilityPage — following the operation', () => {
     await user.type(screen.getByLabelText('Agência'), '0001');
     await user.type(screen.getByLabelText('Conta'), '123456-7');
     await user.click(screen.getByRole('button', { name: 'Solicitar portabilidade' }));
-    expect(await screen.findByRole('heading', { name: /Operação op-1/ })).toBeInTheDocument();
+    await findHistoryRow(/P001.*Pendente/);
 
     await waitFor(() => expect(screen.getByLabelText('Selecionar parcela P001')).toBeDisabled());
     await user.click(screen.getByLabelText('Selecionar parcela P002'));
+    // The account typed for the first request is still there.
+    expect(screen.getByLabelText('Banco')).toHaveValue('341');
     await user.click(screen.getByRole('button', { name: 'Solicitar portabilidade' }));
 
-    expect(await screen.findByRole('heading', { name: /Operação op-2/ })).toBeInTheDocument();
+    expect(await findHistoryRow(/P002.*Pendente/)).toBeInTheDocument();
+    expect(await findHistoryRow(/P001.*Pendente/)).toBeInTheDocument();
     expect(requested).toEqual([['P001'], ['P002']]);
   });
 
-  test('shows the rejection reason as a result, not as an error', async () => {
+  test('shows the rejection reason in the row, not as an error', async () => {
     server.use(
       streamStatus({
         status: 'REJECTED',
@@ -552,22 +582,13 @@ describe('PortabilityPage — following the operation', () => {
     await requestPortability(() => HttpResponse.json(pending('op-2'), { status: 202 }));
 
     expect(
-      await screen.findByText(
-        'Portabilidade rejeitada pela Central: Beneficiário atingiu o limite de margem consignável.',
-      ),
+      await findHistoryRow(/Rejeitada.*Beneficiário atingiu o limite de margem consignável/),
     ).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  test('follows the existing operation when the installments are already pending', async () => {
-    server.use(
-      http.get('/api/portability-operations/:id', ({ params }) =>
-        HttpResponse.json(pending(String(params.id))),
-      ),
-      streamStatus(),
-    );
-
-    await requestPortability(() =>
+  test('points to the history when the installments are already pending', async () => {
+    const { historyReads } = await requestPortability(() =>
       HttpResponse.json(
         {
           code: 'INSTALLMENT_IN_PENDING_OPERATION',
@@ -578,17 +599,15 @@ describe('PortabilityPage — following the operation', () => {
       ),
     );
 
-    expect(
-      await screen.findByText('Já existe uma solicitação em andamento para essas parcelas.'),
-    ).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { name: /Operação op-9/ })).toHaveTextContent(
-      'Pendente',
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Já existe uma solicitação em andamento para essas parcelas — acompanhe no Histórico de portabilidade.',
     );
+    await waitFor(() => expect(historyReads()).toBe(2));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });
 
-describe('PortabilityPage — history and resuming after a reload', () => {
+describe('PortabilityPage — history', () => {
   const operationOf = (
     id: string,
     status: PortabilityOperation['status'],
@@ -611,9 +630,9 @@ describe('PortabilityPage — history and resuming after a reload', () => {
     renderWithProviders(<PortabilityPage />);
   };
 
-  const history = () => screen.getByRole('region', { name: 'Suas portabilidades' });
+  const historyRows = () => within(history()).getAllByRole('row').slice(1);
 
-  test('resumes following the pending operation found in the history', async () => {
+  test('keeps pending rows up to date after a reload and details the others', async () => {
     server.use(
       http.get(HISTORY_URL, () =>
         historyPage([
@@ -634,20 +653,76 @@ describe('PortabilityPage — history and resuming after a reload', () => {
         );
       }),
     );
+    const user = userEvent.setup();
 
     openBeneficiary();
 
-    const tracker = await screen.findByRole('heading', { name: /Operação op-new/ });
-    expect(tracker).toHaveTextContent('Pendente');
+    expect(await findHistoryRow(/Pendente/)).toBeInTheDocument();
+    expect(await findHistoryRow(/Confirmada/)).toBeInTheDocument();
+    const [confirmed, rejected] = historyRows();
+    expect(confirmed).toHaveTextContent('Confirmada');
+    expect(rejected).toHaveTextContent('Rejeitada');
+    expect(rejected).toHaveTextContent('Sem margem');
     expect(
-      await screen.findByText('Portabilidade confirmada para as parcelas P001.'),
-    ).toBeVisible();
-    expect(tracker).toHaveTextContent('Confirmada');
-    const rows = within(history()).getAllByRole('listitem');
-    expect(rows[0]).toHaveTextContent('Confirmada');
-    expect(rows[1]).toHaveTextContent('Rejeitada');
-    expect(rows[1]).toHaveTextContent('Sem margem');
-    expect(rows[1]).toHaveTextContent('Banco 341 · Agência 0001 · Conta 123456-7');
+      within(rejected).queryByRole('button', { name: 'Tentar novamente' }),
+    ).not.toBeInTheDocument();
+
+    await user.click(within(rejected).getByRole('button', { name: /Detalhes da solicitação/ }));
+
+    expect(history()).toHaveTextContent('Banco 341 · Agência 0001 · Conta 123456-7');
+  });
+
+  test('resends a failed operation from its row', async () => {
+    let sent: unknown;
+    const failed = operationOf('op-failed', 'FAILED');
+    window.history.replaceState(null, '', '/?beneficiary=BEN001');
+    server.use(
+      http.get(SCHEDULE_URL, () =>
+        HttpResponse.json(
+          sent
+            ? {
+                beneficiaryId: 'BEN001',
+                installments: [
+                  {
+                    ...schedule('BEN001').installments[0],
+                    eligible: false,
+                    heldBy: { operationId: 'op-retry', status: 'PENDING' },
+                  },
+                ],
+              }
+            : schedule('BEN001'),
+        ),
+      ),
+      http.get(HISTORY_URL, () =>
+        historyPage(sent ? [operationOf('op-retry', 'PENDING'), failed] : [failed]),
+      ),
+      http.post(OPERATIONS_URL, async ({ request }) => {
+        sent = await request.json();
+        return HttpResponse.json(operationOf('op-retry', 'PENDING'), { status: 202 });
+      }),
+      sse<{ status: string }>('/api/portability-operations/:id/events', ({ client, params }) => {
+        client.send({
+          event: 'status',
+          data: JSON.stringify(operationOf(String(params.id), 'PENDING')),
+        });
+      }),
+    );
+    renderWithProviders(<PortabilityPage />);
+    const user = userEvent.setup();
+
+    const row = await findHistoryRow(/Falhou.*Falha na comunicação com a Central/);
+    await user.click(within(row).getByRole('button', { name: 'Tentar novamente' }));
+
+    expect(await findHistoryRow(/Pendente/)).toBeInTheDocument();
+    expect(sent).toEqual({
+      beneficiaryId: 'BEN001',
+      installmentIds: ['P001'],
+      destinationAccount: { bankCode: '341', branch: '0001', accountNumber: '123456-7' },
+    });
+    // The retry holds the installments now, so the failed row can't be resent again.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Tentar novamente' })).not.toBeInTheDocument(),
+    );
   });
 
   test('pages through the history five at a time', async () => {
@@ -659,7 +734,7 @@ describe('PortabilityPage — history and resuming after a reload', () => {
         expect(url.searchParams.get('size')).toBe('5');
         const page = Number(url.searchParams.get('page'));
         return HttpResponse.json({
-          content: [operationOf(`op-page-${page}`, 'REJECTED')],
+          content: [operationOf(`op-page-${page}`, 'REJECTED', { installmentIds: [`P00${page}`] })],
           page: { size: 5, number: page, totalElements: 6, totalPages: 2 },
         });
       }),
@@ -672,7 +747,8 @@ describe('PortabilityPage — history and resuming after a reload', () => {
     await user.click(screen.getByRole('button', { name: 'Próxima' }));
 
     expect(await screen.findByText('Página 2 de 2')).toBeInTheDocument();
-    expect(within(history()).getByRole('listitem')).toHaveTextContent('1 parcela(s)');
+    expect(historyRows()).toHaveLength(1);
+    expect(historyRows()[0]).toHaveTextContent('P001');
     expect(screen.getByRole('button', { name: 'Próxima' })).toBeDisabled();
     expect(requestedPages).toEqual(['0', '1']);
   });
@@ -681,6 +757,5 @@ describe('PortabilityPage — history and resuming after a reload', () => {
     openBeneficiary();
 
     expect(await screen.findByText('Nenhuma portabilidade solicitada.')).toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: /Operação/ })).not.toBeInTheDocument();
   });
 });

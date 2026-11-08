@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import styles from './beneficiary-form.module.css';
 
-const TEST_BENEFICIARIES = ['BEN001', 'BEN002', 'BEN_ERRO'];
+const TEST_BENEFICIARIES = ['BEN001', 'BEN002', 'BEN_ERRO', 'BEN003'];
 
 type BeneficiaryFormProps = {
   defaultValue: string;
@@ -28,7 +28,7 @@ export const BeneficiaryForm = ({ defaultValue, onSubmit }: BeneficiaryFormProps
           list="test-beneficiaries"
           defaultValue={defaultValue}
           aria-invalid={invalid}
-          aria-describedby="beneficiary-hint"
+          aria-describedby={invalid ? 'beneficiary-hint' : undefined}
         />
         <datalist id="test-beneficiaries">
           {TEST_BENEFICIARIES.map((id) => (
@@ -39,14 +39,14 @@ export const BeneficiaryForm = ({ defaultValue, onSubmit }: BeneficiaryFormProps
           Consultar agenda
         </button>
       </div>
-      {invalid ? (
-        <p id="beneficiary-hint" className={styles.error}>
-          Informe o beneficiário.
-        </p>
-      ) : (
-        <p id="beneficiary-hint" className={styles.hint}>
-          BEN001 → confirma · BEN002 → rejeita · BEN_ERRO → Central indisponível
-        </p>
+      {invalid && (
+        <div id="beneficiary-hint">
+          <p className={styles.error}>Informe o beneficiário.</p>
+          <p className={styles.hint}>
+            BEN001 → confirma · BEN002 → rejeita · BEN_ERRO → Central indisponível · BEN003 →
+            Beneficiário com agendamento e central indisponível
+          </p>
+        </div>
       )}
     </form>
   );

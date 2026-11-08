@@ -10,7 +10,7 @@ type OperationsHistoryProps = {
   beneficiaryId: string;
 };
 
-const OperationsList = ({ beneficiaryId }: OperationsHistoryProps) => {
+const OperationsTable = ({ beneficiaryId }: OperationsHistoryProps) => {
   const [page, setPage] = useState(0);
   const operations = useOperations(beneficiaryId, page);
 
@@ -30,11 +30,26 @@ const OperationsList = ({ beneficiaryId }: OperationsHistoryProps) => {
 
   return (
     <>
-      <ul>
-        {content.map((operation) => (
-          <OperationHistoryItem key={operation.id} operation={operation} />
-        ))}
-      </ul>
+      <table aria-labelledby="operations-history-title">
+        <thead>
+          <tr>
+            <th scope="col">
+              <span className={styles.visuallyHidden}>Detalhes</span>
+            </th>
+            <th scope="col">Solicitada em</th>
+            <th scope="col">Parcelas</th>
+            <th scope="col">Situação</th>
+            <th scope="col">
+              <span className={styles.visuallyHidden}>Ações</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {content.map((operation) => (
+            <OperationHistoryItem key={operation.id} operation={operation} />
+          ))}
+        </tbody>
+      </table>
       {pageInfo.totalPages > 1 && (
         <Pagination
           page={page}
@@ -50,7 +65,7 @@ const OperationsList = ({ beneficiaryId }: OperationsHistoryProps) => {
 
 export const OperationsHistory = ({ beneficiaryId }: OperationsHistoryProps) => (
   <section className={styles.operationsHistory} aria-labelledby="operations-history-title">
-    <h2 id="operations-history-title">Suas portabilidades</h2>
-    <OperationsList beneficiaryId={beneficiaryId} />
+    <h2 id="operations-history-title">Histórico de portabilidade</h2>
+    <OperationsTable beneficiaryId={beneficiaryId} />
   </section>
 );
