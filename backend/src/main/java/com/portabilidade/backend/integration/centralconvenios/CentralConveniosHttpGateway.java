@@ -7,8 +7,11 @@ import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
@@ -26,6 +29,8 @@ class CentralConveniosHttpGateway implements CentralConveniosGateway {
 	private static final String UNAVAILABLE_MESSAGE = "Central de Convênios is unavailable. Try again later.";
 	private static final String AUTHORIZATIONS_PATH = "/autorizacoes";
 	private static final String SCHEDULE_PATH = "/beneficiarios/{id}/agenda";
+	private static final String PORTABILITY_PATH = "/operacoes-portabilidade";
+	private static final String PORTABILITY_STATUS_PATH = "/operacoes-portabilidade/{protocol}";
 	private static final ParameterizedTypeReference<List<CentralInstallment>> INSTALLMENT_LIST_TYPE =
 			new ParameterizedTypeReference<>() {
 			};
@@ -64,6 +69,54 @@ class CentralConveniosHttpGateway implements CentralConveniosGateway {
 			throw badResponse(operation, "incomplete installment");
 		}
 		return installments;
+	}
+
+	@Override
+	public String submitPortability(CentralPortabilityRequest request) {
+		var operation = "POST " + PORTABILITY_PATH;
+		var response = exchange(operation, () -> restClient.post()
+				.uri(PORTABILITY_PATH)
+				.body(request)
+				.retrieve()
+				.body(CentralPortabilityResponse.class));
+		if (response.protocol() == null) {
+			throw badResponse(operation, "missing protocolo");
+		}
+		return response.protocol();
+	}
+
+	@Override
+	public CentralPortabilityResult getPortabilityStatus(String protocol) {
+		var operation = "GET " + PORTABILITY_STATUS_PATH;
+		var response = exchange(operation, () -> {
+			try {
+				return restClient.get()
+						.uri(PORTABILITY_STATUS_PATH, protocol)
+						.retrieve()
+						.toEntity(CentralPortabilityStatusResponse.class);
+			} catch (HttpClientErrorException.NotFound e) {
+				return ResponseEntity.notFound().<CentralPortabilityStatusResponse>build();
+			}
+		});
+		return toResult(operation, response);
+	}
+
+	private static CentralPortabilityResult toResult(String operation,
+			ResponseEntity<CentralPortabilityStatusResponse> response) {
+		if (response.getStatusCode().isSameCodeAs(HttpStatus.NOT_FOUND)) {
+			return new CentralPortabilityResult.NotFound();
+		}
+		if (response.getStatusCode().isSameCodeAs(HttpStatus.NO_CONTENT)) {
+			return new CentralPortabilityResult.Pending();
+		}
+		var body = response.getBody();
+		if (body == null || body.status() == null) {
+			throw badResponse(operation, "missing status");
+		}
+		return switch (body.status()) {
+			case CONFIRMADA -> new CentralPortabilityResult.Confirmed();
+			case REJEITADA -> new CentralPortabilityResult.Rejected(body.rejectionReason());
+		};
 	}
 
 	// The only place where Central HTTP outcomes become exceptions; a missing body counts as a bad response.

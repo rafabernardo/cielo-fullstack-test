@@ -14,4 +14,14 @@ public interface CentralConveniosGateway {
 	 */
 	List<CentralInstallment> getSchedule(String beneficiaryId);
 
+	/**
+	 * Submits a portability operation; the Central decides asynchronously. Returns the Central's protocol.
+	 */
+	String submitPortability(CentralPortabilityRequest request);
+
+	/**
+	 * Checks the outcome of a submitted operation by its protocol.
+	 */
+	CentralPortabilityResult getPortabilityStatus(String protocol);
+
 }
