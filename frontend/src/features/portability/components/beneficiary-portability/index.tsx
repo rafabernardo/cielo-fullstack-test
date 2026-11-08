@@ -1,12 +1,16 @@
 import { useState } from 'react';
 import styles from './beneficiary-portability.module.css';
+import { useAuthorization } from '@/features/portability/api/get-authorization';
 import { useSchedule } from '@/features/portability/api/get-schedule';
 import { DestinationAccountForm } from '@/features/portability/components/destination-account-form';
 import { OperationTracker } from '@/features/portability/components/operation-tracker';
+import { OptIn } from '@/features/portability/components/opt-in';
 import { OperationsHistory } from '@/features/portability/components/operations-history';
 import { ScheduleSection } from '@/features/portability/components/schedule-section';
 import { useInstallmentSelection } from '@/features/portability/hooks/use-installment-selection';
 import { useLatestPendingOperation } from '@/features/portability/hooks/use-latest-pending-operation';
+import { errorMessage, isRetryable } from '@/features/portability/utils/error-message';
+import { ErrorBanner } from '@/components/error-banner';
 
 type BeneficiaryPortabilityProps = {
   beneficiaryId: string;
@@ -71,18 +75,36 @@ const Workspace = ({ beneficiaryId, resumeOperationId }: WorkspaceProps) => {
   );
 };
 
-// Everything about one beneficiary. Mounted once their history is known, so a PENDING operation
-// left behind by a reload is followed from the first render.
-export const BeneficiaryPortability = ({ beneficiaryId }: BeneficiaryPortabilityProps) => {
+// Waits for the history, so a PENDING operation left behind by a reload is followed from the
+// first render.
+const AuthorizedBeneficiary = ({ beneficiaryId }: BeneficiaryPortabilityProps) => {
   const resumeOperationId = useLatestPendingOperation(beneficiaryId);
+  if (resumeOperationId === undefined) {
+    return <p className={styles.loading}>Carregando…</p>;
+  }
+  return <Workspace beneficiaryId={beneficiaryId} resumeOperationId={resumeOperationId} />;
+};
 
-  return (
-    <div className={styles.beneficiaryPortability}>
-      {resumeOperationId === undefined ? (
-        <p className={styles.loading}>Carregando…</p>
-      ) : (
-        <Workspace beneficiaryId={beneficiaryId} resumeOperationId={resumeOperationId} />
-      )}
-    </div>
-  );
+// Everything about one beneficiary. The authorization (opt-in) is checked first, and nothing else
+// about them is read before they authorized.
+export const BeneficiaryPortability = ({ beneficiaryId }: BeneficiaryPortabilityProps) => {
+  const authorization = useAuthorization(beneficiaryId);
+
+  const content = () => {
+    if (authorization.isPending) {
+      return <p className={styles.loading}>Carregando…</p>;
+    }
+    if (authorization.isError) {
+      const retry = isRetryable(authorization.error)
+        ? () => void authorization.refetch()
+        : undefined;
+      return <ErrorBanner onRetry={retry}>{errorMessage(authorization.error)}</ErrorBanner>;
+    }
+    if (!authorization.data.authorized) {
+      return <OptIn beneficiaryId={beneficiaryId} />;
+    }
+    return <AuthorizedBeneficiary beneficiaryId={beneficiaryId} />;
+  };
+
+  return <div className={styles.beneficiaryPortability}>{content()}</div>;
 };

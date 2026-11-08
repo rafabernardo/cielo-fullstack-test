@@ -7,6 +7,11 @@ export type Authorization = {
   createdAt: string;
 };
 
+export type AuthorizationStatus = {
+  beneficiaryId: string;
+  authorized: boolean;
+};
+
 export type Installment = {
   installmentId: string;
   agreementId: string;

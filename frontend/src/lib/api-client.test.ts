@@ -61,7 +61,7 @@ test('lets a cancelled request fail with the AbortError instead of a network err
   );
   const controller = new AbortController();
 
-  const request = apiGet('/api/things', controller.signal);
+  const request = apiGet('/api/things', { signal: controller.signal });
   controller.abort();
 
   await expect(request).rejects.toMatchObject({ name: 'AbortError' });

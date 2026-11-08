@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import styles from './portability-page.module.css';
+import { authorizationKey } from '@/features/portability/api/get-authorization';
 import { scheduleKey } from '@/features/portability/api/get-schedule';
 import { BeneficiaryForm } from '@/features/portability/components/beneficiary-form';
 import { BeneficiaryPortability } from '@/features/portability/components/beneficiary-portability';
@@ -13,6 +14,7 @@ export const PortabilityPage = () => {
   const consult = (id: string) => {
     writeBeneficiary(id);
     if (id === beneficiaryId) {
+      void queryClient.invalidateQueries({ queryKey: authorizationKey(id) });
       void queryClient.invalidateQueries({ queryKey: scheduleKey(id) });
     } else {
       setBeneficiaryId(id);

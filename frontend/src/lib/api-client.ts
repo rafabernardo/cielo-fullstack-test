@@ -48,8 +48,26 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   return response.json();
 };
 
-// Pass the `signal` TanStack Query gives each query so obsolete reads are cancelled.
-export const apiGet = <T>(path: string, signal?: AbortSignal) => request<T>(path, { signal });
+// The context TanStack Query gives each query, passed whole: reading its `signal` is what lets the
+// query abort the read once nothing observes it.
+export type QueryContext = { readonly signal: AbortSignal };
+
+// Cancels obsolete reads, but only from the next tick: TanStack Query aborts a read whose signal
+// was read as soon as its last observer unmounts, which StrictMode's dev remount does right away,
+// so the read would be aborted and sent again. Not reading the signal before then lets the
+// remounted observer reuse the read in flight.
+const deferredSignal = (context: QueryContext) => {
+  const controller = new AbortController();
+  setTimeout(() => {
+    const { signal } = context;
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', () => controller.abort(), { once: true });
+  });
+  return controller.signal;
+};
+
+export const apiGet = <T>(path: string, context?: QueryContext) =>
+  request<T>(path, { signal: context && deferredSignal(context) });
 
 export const apiPost = <T>(path: string, body: unknown) =>
   request<T>(path, {

@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form';
 import styles from './destination-account-form.module.css';
 import { useCreateOperation } from '@/features/portability/api/create-operation';
 import { scheduleKey } from '@/features/portability/api/get-schedule';
-import type { PortabilityOperation } from '@/features/portability/types';
+import type { PortabilityOperation, Schedule } from '@/features/portability/types';
 import {
   destinationAccountSchema,
   type DestinationAccountValues,
@@ -32,6 +32,10 @@ export const DestinationAccountForm = ({
 }: DestinationAccountFormProps) => {
   const queryClient = useQueryClient();
   const operation = useCreateOperation();
+  // An empty schedule can still be submitted, so the Central's answer (e.g. BEN_ERRO's 503) reaches the user.
+  // Read from the cache, not subscribed: a second observer would refetch the schedule on mount.
+  const scheduleIsEmpty =
+    queryClient.getQueryData<Schedule>(scheduleKey(beneficiaryId))?.installments.length === 0;
   const {
     register,
     handleSubmit,
@@ -103,7 +107,7 @@ export const DestinationAccountForm = ({
       <button
         type="submit"
         className={styles.submit}
-        disabled={installmentIds.length === 0 || isSubmitting}
+        disabled={(installmentIds.length === 0 && !scheduleIsEmpty) || isSubmitting}
       >
         {isSubmitting ? 'Solicitando…' : 'Solicitar portabilidade'}
       </button>

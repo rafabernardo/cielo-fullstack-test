@@ -1,7 +1,8 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { StrictMode } from 'react';
 import { delay, http, HttpResponse, sse } from 'msw';
-import { beforeEach, describe, expect, test } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { PortabilityPage } from '.';
 import type { PortabilityOperation, Schedule } from '@/features/portability/types';
 import { renderWithProviders } from '@/testing/render';
@@ -9,6 +10,7 @@ import { server } from '@/testing/server';
 
 const SCHEDULE_URL = '/api/beneficiaries/:beneficiaryId/schedule';
 const HISTORY_URL = '/api/beneficiaries/:beneficiaryId/portability-operations';
+const AUTHORIZATION_URL = '/api/beneficiaries/:beneficiaryId/authorization';
 
 const historyPage = (content: PortabilityOperation[], totalPages = content.length ? 1 : 0) =>
   HttpResponse.json({
@@ -16,8 +18,15 @@ const historyPage = (content: PortabilityOperation[], totalPages = content.lengt
     page: { size: 5, number: 0, totalElements: content.length, totalPages },
   });
 
-// Every test starts with an empty history; tests about the history override it.
-beforeEach(() => server.use(http.get(HISTORY_URL, () => historyPage([]))));
+// Every test starts authorized and with an empty history; tests about either override it.
+beforeEach(() =>
+  server.use(
+    http.get(AUTHORIZATION_URL, ({ params }) =>
+      HttpResponse.json({ beneficiaryId: params.beneficiaryId, authorized: true }),
+    ),
+    http.get(HISTORY_URL, () => historyPage([])),
+  ),
+);
 
 const schedule = (beneficiaryId: string): Schedule => ({
   beneficiaryId,
@@ -50,13 +59,19 @@ const consult = async (beneficiaryId: string) => {
 };
 
 describe('PortabilityPage — beneficiary and opt-in', () => {
-  test('asks for opt-in when the schedule requires authorization, then loads it', async () => {
+  test('asks for opt-in before reading the schedule, then loads it', async () => {
     let authorizedBody: unknown;
+    let scheduleReads = 0;
     server.use(
-      http.get(SCHEDULE_URL, ({ params }) =>
-        authorizedBody
-          ? HttpResponse.json(schedule(String(params.beneficiaryId)))
-          : problem(422, 'AUTHORIZATION_REQUIRED'),
+      http.get(AUTHORIZATION_URL, ({ params }) =>
+        HttpResponse.json({ beneficiaryId: params.beneficiaryId, authorized: !!authorizedBody }),
+      ),
+      http.get(
+        SCHEDULE_URL,
+        ({ params }) => (
+          scheduleReads++,
+          HttpResponse.json(schedule(String(params.beneficiaryId)))
+        ),
       ),
       http.post('/api/authorizations', async ({ request }) => {
         authorizedBody = await request.json();
@@ -67,13 +82,65 @@ describe('PortabilityPage — beneficiary and opt-in', () => {
 
     const user = await consult('BEN001');
     const authorize = await screen.findByRole('button', { name: 'Autorizar' });
+    expect(scheduleReads).toBe(0);
     expect(authorize).toBeDisabled();
     await user.click(screen.getByLabelText(/Autorizo a consulta/));
     await user.click(authorize);
 
     expect(await findScheduleTable()).toBeInTheDocument();
+    expect(scheduleReads).toBe(1);
     expect(authorizedBody).toEqual({ beneficiaryId: 'BEN001' });
     expect(screen.queryByRole('button', { name: 'Autorizar' })).not.toBeInTheDocument();
+  });
+
+  test('reads the history only once the beneficiary is authorized', async () => {
+    let authorized = false;
+    let historyReads = 0;
+    server.use(
+      http.get(AUTHORIZATION_URL, ({ params }) =>
+        HttpResponse.json({ beneficiaryId: params.beneficiaryId, authorized }),
+      ),
+      http.get(SCHEDULE_URL, ({ params }) =>
+        HttpResponse.json(schedule(String(params.beneficiaryId))),
+      ),
+      http.get(HISTORY_URL, () => (historyReads++, historyPage([]))),
+      http.post('/api/authorizations', () => {
+        authorized = true;
+        return HttpResponse.json({}, { status: 201 });
+      }),
+    );
+    renderWithProviders(<PortabilityPage />);
+
+    const user = await consult('BEN001');
+    await screen.findByRole('button', { name: 'Autorizar' });
+    expect(historyReads).toBe(0);
+
+    await user.click(screen.getByLabelText(/Autorizo a consulta/));
+    await user.click(screen.getByRole('button', { name: 'Autorizar' }));
+    await findScheduleTable();
+    expect(historyReads).toBe(1);
+  });
+
+  test('fetches authorization and schedule once each under StrictMode', async () => {
+    server.use(
+      http.get(SCHEDULE_URL, ({ params }) =>
+        HttpResponse.json(schedule(String(params.beneficiaryId))),
+      ),
+    );
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    renderWithProviders(
+      <StrictMode>
+        <PortabilityPage />
+      </StrictMode>,
+    );
+
+    await consult('BEN001');
+    await findScheduleTable();
+
+    const paths = fetchSpy.mock.calls.map(([url]) => new URL(String(url)).pathname);
+    expect(paths.filter((path) => path.endsWith('/authorization'))).toHaveLength(1);
+    expect(paths.filter((path) => path.endsWith('/schedule'))).toHaveLength(1);
+    fetchSpy.mockRestore();
   });
 
   test('consults the beneficiary from the URL without a click and keeps it in the URL', async () => {
@@ -318,6 +385,32 @@ describe('PortabilityPage — destination account and request', () => {
       },
       bodies[0],
     ]);
+  });
+
+  // BEN_ERRO in the simulator: no agenda, and the Central refuses the submission.
+  test('lets an empty schedule be submitted so the Central unavailability is shown', async () => {
+    let body: unknown;
+    window.history.replaceState(null, '', '/?beneficiary=BEN_ERRO');
+    server.use(
+      http.get(SCHEDULE_URL, () =>
+        HttpResponse.json({ beneficiaryId: 'BEN_ERRO', installments: [] }),
+      ),
+      http.post(OPERATIONS_URL, async ({ request }) => {
+        body = await request.json();
+        return problem(503, 'CENTRAL_CONVENIOS_UNAVAILABLE');
+      }),
+    );
+    renderWithProviders(<PortabilityPage />);
+    const user = userEvent.setup();
+    await screen.findByText('Nenhuma parcela futura para este beneficiário.');
+
+    await fillAccount(user);
+    await user.click(requestButton());
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'A Central de Convênios está indisponível no momento.',
+    );
+    expect(body).toMatchObject({ beneficiaryId: 'BEN_ERRO', installmentIds: [] });
   });
 
   test('sends a single request when the button is clicked twice', async () => {
