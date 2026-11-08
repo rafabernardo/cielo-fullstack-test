@@ -16,6 +16,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OrderColumn;
 import jakarta.persistence.Table;
@@ -23,7 +24,8 @@ import jakarta.persistence.Version;
 
 // A request to port installments to a new creditor; the Central confirms or rejects it asynchronously.
 @Entity
-@Table(name = "portability_operations")
+@Table(name = "portability_operations",
+		indexes = @Index(name = "idx_operations_beneficiary_created", columnList = "beneficiaryId, createdAt"))
 public class PortabilityOperation {
 
 	@Id

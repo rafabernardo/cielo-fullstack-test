@@ -5,6 +5,11 @@ spring:
     async:
       # Lifetime of an SSE stream; the browser's EventSource reconnects and receives the current status again.
       request-timeout: 60s
+  data:
+    web:
+      pageable:
+        default-page-size: 5
+        max-page-size: 20
 
 springdoc:
   default-produces-media-type: application/json

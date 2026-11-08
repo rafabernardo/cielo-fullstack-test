@@ -10,6 +10,10 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -40,6 +44,8 @@ import com.portabilidade.backend.repository.PortabilityOperationRepository;
 public class PortabilityOperationService {
 
 	private static final Logger log = LoggerFactory.getLogger(PortabilityOperationService.class);
+	// Newest first; the id breaks ties so pages never overlap.
+	private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
 
 	private final PortabilityOperationRepository operationRepository;
 	private final InstallmentLockRepository installmentLockRepository;
@@ -76,6 +82,12 @@ public class PortabilityOperationService {
 
 	public PortabilityOperation get(UUID id) {
 		return operationRepository.findById(id).orElseThrow(PortabilityOperationNotFoundException::new);
+	}
+
+	// The order is fixed here; a sort sent by the client is ignored.
+	public Page<PortabilityOperation> listByBeneficiary(String beneficiaryId, Pageable pageable) {
+		return operationRepository.findAllByBeneficiaryId(beneficiaryId,
+				PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), NEWEST_FIRST));
 	}
 
 	// Rejects ids missing from the schedule or not open (422) before ids taken by another operation (409).
