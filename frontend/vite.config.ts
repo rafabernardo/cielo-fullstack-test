@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import react, { reactCompilerPreset } from '@vitejs/plugin-react';
 import babel from '@rolldown/plugin-babel';
 import path from 'node:path';
@@ -10,9 +11,17 @@ export default defineConfig({
   resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
   server: {
     strictPort: true,
+    // The backend has no CORS: the browser talks to it through this proxy.
+    proxy: { '/api': 'http://localhost:8080' },
     fs: {
       strict: true,
       deny: ['**/.*'],
     },
+  },
+  test: {
+    environment: 'jsdom',
+    // Globals let Testing Library clean up the DOM after each test on its own.
+    globals: true,
+    setupFiles: ['./src/testing/setup.ts'],
   },
 });
