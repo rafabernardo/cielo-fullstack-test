@@ -1,0 +1,35 @@
+.destination-account-form {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+
+  & fieldset {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin: 0;
+    padding: var(--space-4);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
+
+  & legend {
+    padding: 0 var(--space-1);
+    font-weight: 600;
+  }
+
+  & .submit {
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius-sm);
+    background: var(--color-accent);
+    color: var(--color-surface);
+    cursor: pointer;
+
+    &:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+  }
+}

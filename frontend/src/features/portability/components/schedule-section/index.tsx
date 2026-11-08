@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import styles from './schedule-section.module.css';
 import { useSchedule } from '@/features/portability/api/get-schedule';
 import { OptIn } from '@/features/portability/components/opt-in';
@@ -10,13 +11,20 @@ type ScheduleSectionProps = {
   beneficiaryId: string;
   selected: string[];
   onToggle: (installmentId: string) => void;
+  // Rendered below the table once there is something to select (e.g. the request form).
+  children?: ReactNode;
 };
 
 const isAuthorizationRequired = (error: unknown) =>
   error instanceof ApiError && error.code === 'AUTHORIZATION_REQUIRED';
 
 // Shows the schedule, or what stands in its way: loading, missing opt-in or a failure.
-export const ScheduleSection = ({ beneficiaryId, selected, onToggle }: ScheduleSectionProps) => {
+export const ScheduleSection = ({
+  beneficiaryId,
+  selected,
+  onToggle,
+  children,
+}: ScheduleSectionProps) => {
   const schedule = useSchedule(beneficiaryId);
 
   if (schedule.isPending) {
@@ -32,11 +40,11 @@ export const ScheduleSection = ({ beneficiaryId, selected, onToggle }: ScheduleS
     return <ErrorBanner onRetry={retry}>{errorMessage(schedule.error)}</ErrorBanner>;
   }
 
+  const { installments } = schedule.data;
   return (
-    <ScheduleTable
-      installments={schedule.data.installments}
-      selected={selected}
-      onToggle={onToggle}
-    />
+    <div className={styles.scheduleSection}>
+      <ScheduleTable installments={installments} selected={selected} onToggle={onToggle} />
+      {installments.length > 0 && children}
+    </div>
   );
 };

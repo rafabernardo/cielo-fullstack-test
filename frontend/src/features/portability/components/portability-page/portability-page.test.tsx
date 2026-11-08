@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { http, HttpResponse } from 'msw';
+import { delay, http, HttpResponse } from 'msw';
 import { describe, expect, test } from 'vitest';
 import { PortabilityPage } from '.';
 import type { Schedule } from '@/features/portability/types';
@@ -185,5 +185,134 @@ describe('PortabilityPage — schedule and selection', () => {
     await consult('BEN002');
 
     expect(await screen.findByLabelText('Selecionar parcela P001')).not.toBeChecked();
+  });
+});
+
+describe('PortabilityPage — destination account and request', () => {
+  const OPERATIONS_URL = '/api/portability-operations';
+
+  const operation = (id: string) => ({
+    id,
+    beneficiaryId: 'BEN001',
+    installmentIds: ['P001'],
+    destinationAccount: { bankCode: '341', branch: '0001', accountNumber: '123456-7' },
+    status: 'PENDING',
+    rejectionReason: null,
+    createdAt: '2026-11-08T12:00:00Z',
+    updatedAt: '2026-11-08T12:00:00Z',
+  });
+
+  // Opens BEN001 with P001 selected.
+  const selectInstallment = async () => {
+    window.history.replaceState(null, '', '/?beneficiary=BEN001');
+    server.use(http.get(SCHEDULE_URL, () => HttpResponse.json(schedule('BEN001'))));
+    renderWithProviders(<PortabilityPage />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByLabelText('Selecionar parcela P001'));
+    return user;
+  };
+
+  const fillAccount = async (
+    user: ReturnType<typeof userEvent.setup>,
+    { bankCode = '341', branch = '0001', accountNumber = '123456-7' } = {},
+  ) => {
+    await user.type(screen.getByLabelText('Banco'), bankCode);
+    await user.type(screen.getByLabelText('Agência'), branch);
+    await user.type(screen.getByLabelText('Conta'), accountNumber);
+  };
+
+  const requestButton = () => screen.getByRole('button', { name: 'Solicitar portabilidade' });
+
+  test('keeps the request disabled until an installment is selected', async () => {
+    window.history.replaceState(null, '', '/?beneficiary=BEN001');
+    server.use(http.get(SCHEDULE_URL, () => HttpResponse.json(schedule('BEN001'))));
+    renderWithProviders(<PortabilityPage />);
+    await findScheduleTable();
+
+    expect(requestButton()).toBeDisabled();
+  });
+
+  test('validates the account before sending anything', async () => {
+    let posts = 0;
+    server.use(http.post(OPERATIONS_URL, () => (posts++, HttpResponse.json({}, { status: 202 }))));
+    const user = await selectInstallment();
+
+    await fillAccount(user, { bankCode: '12', branch: 'abc', accountNumber: '12a' });
+    await user.click(requestButton());
+
+    expect(await screen.findByText('Banco deve ter 3 dígitos')).toBeInTheDocument();
+    expect(screen.getByText('Agência deve ter 4 dígitos')).toBeInTheDocument();
+    expect(screen.getByText(/Conta: até 12 dígitos/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Banco')).toHaveAccessibleDescription('Banco deve ter 3 dígitos');
+    expect(posts).toBe(0);
+  });
+
+  test('shows field errors returned by the backend under their field', async () => {
+    server.use(
+      http.post(OPERATIONS_URL, () =>
+        HttpResponse.json(
+          {
+            code: 'VALIDATION_ERROR',
+            errors: { 'destinationAccount.branch': 'Agência inexistente' },
+          },
+          { status: 400, headers: { 'Content-Type': 'application/problem+json' } },
+        ),
+      ),
+    );
+    const user = await selectInstallment();
+
+    await fillAccount(user);
+    await user.click(requestButton());
+
+    expect(await screen.findByText('Agência inexistente')).toBeInTheDocument();
+    expect(screen.getByLabelText('Agência')).toHaveAccessibleDescription('Agência inexistente');
+  });
+
+  test('offers a retry when the Central is unavailable and creates the operation on retry', async () => {
+    const bodies: unknown[] = [];
+    server.use(
+      http.post(OPERATIONS_URL, async ({ request }) => {
+        bodies.push(await request.json());
+        return bodies.length === 1
+          ? problem(503, 'CENTRAL_CONVENIOS_UNAVAILABLE')
+          : HttpResponse.json(operation('op-1'), { status: 202 });
+      }),
+    );
+    const user = await selectInstallment();
+
+    await fillAccount(user);
+    await user.click(requestButton());
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'A Central de Convênios está indisponível no momento.',
+    );
+    await user.click(screen.getByRole('button', { name: 'Tentar novamente' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Operação op-1 criada.');
+    expect(bodies).toEqual([
+      {
+        beneficiaryId: 'BEN001',
+        installmentIds: ['P001'],
+        destinationAccount: { bankCode: '341', branch: '0001', accountNumber: '123456-7' },
+      },
+      bodies[0],
+    ]);
+  });
+
+  test('sends a single request when the button is clicked twice', async () => {
+    let posts = 0;
+    server.use(
+      http.post(OPERATIONS_URL, async () => {
+        posts++;
+        await delay(50);
+        return HttpResponse.json(operation('op-1'), { status: 202 });
+      }),
+    );
+    const user = await selectInstallment();
+
+    await fillAccount(user);
+    await user.dblClick(requestButton());
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Operação op-1 criada.');
+    expect(posts).toBe(1);
   });
 });
