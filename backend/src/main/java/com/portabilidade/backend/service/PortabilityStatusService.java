@@ -5,7 +5,6 @@ import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -13,11 +12,9 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import com.portabilidade.backend.domain.PortabilityOperation;
 import com.portabilidade.backend.domain.PortabilityOperationStatus;
-import com.portabilidade.backend.domain.PortabilityOperationStatusChanged;
 import com.portabilidade.backend.exception.CentralConveniosException;
 import com.portabilidade.backend.integration.centralconvenios.CentralConveniosGateway;
 import com.portabilidade.backend.integration.centralconvenios.CentralPortabilityResult;
-import com.portabilidade.backend.repository.InstallmentLockRepository;
 import com.portabilidade.backend.repository.PortabilityOperationRepository;
 
 /**
@@ -31,19 +28,17 @@ public class PortabilityStatusService {
 	private static final Logger log = LoggerFactory.getLogger(PortabilityStatusService.class);
 
 	private final PortabilityOperationRepository operationRepository;
-	private final InstallmentLockRepository installmentLockRepository;
 	private final CentralConveniosGateway centralConveniosGateway;
+	private final PortabilityOperationTransitionService transitions;
 	private final TransactionTemplate transaction;
-	private final ApplicationEventPublisher events;
 
 	public PortabilityStatusService(PortabilityOperationRepository operationRepository,
-			InstallmentLockRepository installmentLockRepository, CentralConveniosGateway centralConveniosGateway,
-			TransactionTemplate transaction, ApplicationEventPublisher events) {
+			CentralConveniosGateway centralConveniosGateway, PortabilityOperationTransitionService transitions,
+			TransactionTemplate transaction) {
 		this.operationRepository = operationRepository;
-		this.installmentLockRepository = installmentLockRepository;
 		this.centralConveniosGateway = centralConveniosGateway;
+		this.transitions = transitions;
 		this.transaction = transaction;
-		this.events = events;
 	}
 
 	// ponytail: checks due operations sequentially each tick; page or parallelize if volume grows.
@@ -65,49 +60,37 @@ public class PortabilityStatusService {
 		try {
 			result = centralConveniosGateway.getPortabilityStatus(operation.getProtocol());
 		} catch (CentralConveniosException e) {
-			// Already logged by the gateway; stays PENDING and is asked again when the Central allows.
-			transition(operation, pendingOperation -> pendingOperation.checkAgainIn(e.getRetryAfter()), false);
+			log.warn("Could not check portability operation {} (protocol {}): {}; stays PENDING", operation.getId(),
+					operation.getProtocol(), e.getClass().getSimpleName());
+			transition(operation, pendingOperation -> pendingOperation.checkAgainIn(e.getRetryAfter()));
 			return;
 		}
 		switch (result) {
-			case CentralPortabilityResult.Pending pending -> transition(operation,
-					pendingOperation -> pendingOperation.checkAgainIn(pending.retryAfter()), false);
-			case CentralPortabilityResult.Confirmed confirmed ->
-					transition(operation, PortabilityOperation::confirm, false);
+			case CentralPortabilityResult.Pending pending ->
+					transition(operation, pendingOperation -> pendingOperation.checkAgainIn(pending.retryAfter()));
+			case CentralPortabilityResult.Confirmed confirmed -> transition(operation, PortabilityOperation::confirm);
 			case CentralPortabilityResult.Rejected rejected ->
-					transition(operation, pendingOperation -> pendingOperation.reject(rejected.reason()), true);
+					transition(operation, pendingOperation -> pendingOperation.reject(rejected.reason()));
 			case CentralPortabilityResult.NotFound notFound -> {
-				log.warn("Central de Convênios no longer knows portability operation {}", operation.getId());
-				transition(operation, PortabilityOperation::fail, true);
+				log.warn("Central de Convênios no longer knows portability operation {} (protocol {})",
+						operation.getId(), operation.getProtocol());
+				transition(operation, PortabilityOperation::fail);
 			}
 		}
 	}
 
-	private void transition(PortabilityOperation checked, Consumer<PortabilityOperation> change,
-			boolean releaseInstallments) {
+	// Skips a stale result: the operation may have moved on meanwhile (e.g. failed and resubmitted, new protocol).
+	private void transition(PortabilityOperation checked, Consumer<PortabilityOperation> change) {
 		try {
 			transaction.executeWithoutResult(status -> {
 				var current = operationRepository.findById(checked.getId()).orElseThrow();
-				if (!isStillTheCheckedSubmission(current, checked.getProtocol())) {
-					return;
-				}
-				var statusBefore = current.getStatus();
-				change.accept(current);
-				if (releaseInstallments) {
-					installmentLockRepository.deleteByOperationId(current.getId());
-				}
-				if (current.getStatus() != statusBefore) {
-					events.publishEvent(new PortabilityOperationStatusChanged(current.getId()));
+				if (current.isPendingWith(checked.getProtocol())) {
+					transitions.apply(current, change);
 				}
 			});
 		} catch (OptimisticLockingFailureException e) {
 			log.info("Portability operation {} changed concurrently; it will be checked again", checked.getId());
 		}
-	}
-
-	// The result is stale if the operation moved on meanwhile (e.g. failed and was resubmitted with a new protocol).
-	private static boolean isStillTheCheckedSubmission(PortabilityOperation current, String checkedProtocol) {
-		return current.isPending() && checkedProtocol.equals(current.getProtocol());
 	}
 
 }

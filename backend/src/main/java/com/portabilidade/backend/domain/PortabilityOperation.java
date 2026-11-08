@@ -107,7 +107,7 @@ public class PortabilityOperation {
 		return requestFingerprint.equals(fingerprint);
 	}
 
-	public void submitted(String protocol) {
+	public void markSubmitted(String protocol) {
 		requirePending();
 		if (this.protocol != null) {
 			throw new IllegalStateException("Operation " + id + " was already submitted");
@@ -166,6 +166,16 @@ public class PortabilityOperation {
 		}
 		var millis = Duration.between(Instant.now(), nextCheckAt).toMillis();
 		return Math.max(1, (millis + 999) / 1000);
+	}
+
+	/** Whether this operation keeps its installments locked: while pending, and for good once confirmed. */
+	public boolean isHoldingInstallments() {
+		return status == PortabilityOperationStatus.PENDING || status == PortabilityOperationStatus.CONFIRMED;
+	}
+
+	/** Whether it is still waiting on the submission identified by {@code protocol} (not resubmitted meanwhile). */
+	public boolean isPendingWith(String protocol) {
+		return isPending() && protocol != null && protocol.equals(this.protocol);
 	}
 
 	public boolean isFailed() {

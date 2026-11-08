@@ -225,6 +225,19 @@ class PortabilityOperationControllerTest {
 	}
 
 	@Test
+	void failsOperationAndReleasesInstallmentsWhenCentralAnswersSubmissionUnexpectedly() throws Exception {
+		CentralConveniosStub.respondTo("POST", SUBMIT_PATH, 202, "{}");
+
+		var result = create(UUID.randomUUID(), requestFor("P001"));
+
+		result.andExpect(status().isBadGateway())
+				.andExpect(jsonPath("$.code").value("CENTRAL_CONVENIOS_BAD_RESPONSE"));
+		assertThat(operationRepository.findAll()).singleElement()
+				.extracting(operation -> operation.getStatus()).isEqualTo(PortabilityOperationStatus.FAILED);
+		assertThat(installmentLockRepository.count()).isZero();
+	}
+
+	@Test
 	void returnsExistingOperationWhenIdempotencyKeyIsRepeated() throws Exception {
 		var key = UUID.randomUUID();
 		var firstId = idOf(create(key, requestFor("P001", "P002")).andReturn());

@@ -7,8 +7,11 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.http.MediaType;
-import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionalEventListener;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import com.portabilidade.backend.domain.PortabilityOperation;
@@ -21,19 +24,21 @@ import com.portabilidade.backend.service.PortabilityOperationService;
  * The stream completes once the operation leaves PENDING.
  */
 // ponytail: subscribers live in this instance's memory; with several backend instances, fan out through a broker.
-@Component
-class PortabilityOperationStream {
+@RestController
+@RequestMapping("/api/portability-operations")
+public class PortabilityOperationEventsController {
 
 	private static final String STATUS_EVENT = "status";
 
 	private final PortabilityOperationService portabilityOperationService;
 	private final Map<UUID, Set<SseEmitter>> subscribers = new ConcurrentHashMap<>();
 
-	PortabilityOperationStream(PortabilityOperationService portabilityOperationService) {
+	public PortabilityOperationEventsController(PortabilityOperationService portabilityOperationService) {
 		this.portabilityOperationService = portabilityOperationService;
 	}
 
-	SseEmitter subscribe(UUID operationId) {
+	@GetMapping(path = "/{operationId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+	public SseEmitter subscribe(@PathVariable UUID operationId) {
 		portabilityOperationService.get(operationId); // 404 before any stream is opened
 		var emitter = new SseEmitter(); // timeout: spring.mvc.async.request-timeout
 		var operationSubscribers = subscribers.computeIfAbsent(operationId, id -> ConcurrentHashMap.newKeySet());

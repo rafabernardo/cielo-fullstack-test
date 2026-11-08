@@ -2,12 +2,10 @@ package com.portabilidade.backend.service;
 
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
 import com.portabilidade.backend.domain.Installment;
-import com.portabilidade.backend.domain.InstallmentLock;
 import com.portabilidade.backend.domain.InstallmentStatus;
 import com.portabilidade.backend.exception.AuthorizationRequiredException;
 import com.portabilidade.backend.integration.centralconvenios.CentralConveniosGateway;
@@ -35,21 +33,16 @@ public class ScheduleService {
 			throw new AuthorizationRequiredException();
 		}
 		var centralInstallments = centralConveniosGateway.getSchedule(beneficiaryId);
-		var locked = lockedAmong(centralInstallments.stream().map(CentralInstallment::installmentId).toList());
+		var locked = Set.copyOf(installmentLockRepository.findLockedInstallmentIds(
+				centralInstallments.stream().map(CentralInstallment::installmentId).toList()));
 		return centralInstallments.stream()
 				.map(installment -> toInstallment(installment, locked.contains(installment.installmentId())))
 				.toList();
 	}
 
-	private Set<String> lockedAmong(List<String> installmentIds) {
-		return installmentLockRepository.findAllByInstallmentIdIn(installmentIds).stream()
-				.map(InstallmentLock::getInstallmentId)
-				.collect(Collectors.toSet());
-	}
-
-	private static Installment toInstallment(CentralInstallment installment, boolean inActiveOperation) {
+	private static Installment toInstallment(CentralInstallment installment, boolean lockedByOperation) {
 		return new Installment(installment.installmentId(), installment.agreementId(), installment.amount(),
-				installment.deductionDate(), toStatus(installment.status()), inActiveOperation);
+				installment.deductionDate(), toStatus(installment.status()), lockedByOperation);
 	}
 
 	// Exhaustive on purpose: a new Central status fails compilation until it is mapped to our vocabulary.

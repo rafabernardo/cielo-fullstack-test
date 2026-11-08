@@ -5,7 +5,8 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import org.springframework.context.ApplicationEventPublisher;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -15,7 +16,6 @@ import com.portabilidade.backend.domain.DestinationAccount;
 import com.portabilidade.backend.domain.Installment;
 import com.portabilidade.backend.domain.InstallmentLock;
 import com.portabilidade.backend.domain.PortabilityOperation;
-import com.portabilidade.backend.domain.PortabilityOperationStatusChanged;
 import com.portabilidade.backend.exception.CentralConveniosException;
 import com.portabilidade.backend.exception.IdempotencyKeyReusedException;
 import com.portabilidade.backend.exception.InstallmentInOperationException;
@@ -35,26 +35,28 @@ import com.portabilidade.backend.repository.PortabilityOperationRepository;
 public class PortabilityOperationService {
 
 	/** The operation, and whether this request submitted it to the Central (new or retried) or just replayed it. */
-	public record Creation(PortabilityOperation operation, boolean submitted) {
+	public record Creation(PortabilityOperation operation, boolean wasSubmitted) {
 	}
+
+	private static final Logger log = LoggerFactory.getLogger(PortabilityOperationService.class);
 
 	private final PortabilityOperationRepository operationRepository;
 	private final InstallmentLockRepository installmentLockRepository;
 	private final ScheduleService scheduleService;
 	private final CentralConveniosGateway centralConveniosGateway;
+	private final PortabilityOperationTransitionService transitions;
 	private final TransactionTemplate transaction;
-	private final ApplicationEventPublisher events;
 
 	public PortabilityOperationService(PortabilityOperationRepository operationRepository,
 			InstallmentLockRepository installmentLockRepository, ScheduleService scheduleService,
-			CentralConveniosGateway centralConveniosGateway, TransactionTemplate transaction,
-			ApplicationEventPublisher events) {
+			CentralConveniosGateway centralConveniosGateway, PortabilityOperationTransitionService transitions,
+			TransactionTemplate transaction) {
 		this.operationRepository = operationRepository;
 		this.installmentLockRepository = installmentLockRepository;
 		this.scheduleService = scheduleService;
 		this.centralConveniosGateway = centralConveniosGateway;
+		this.transitions = transitions;
 		this.transaction = transaction;
-		this.events = events;
 	}
 
 	public Creation create(UUID idempotencyKey, String beneficiaryId, List<String> installmentIds,
@@ -75,7 +77,8 @@ public class PortabilityOperationService {
 			if (concurrent.isPresent()) {
 				return replay(concurrent.get(), fingerprint);
 			}
-			throw new InstallmentInOperationException(lockedAmong(installmentIds));
+			throw new InstallmentInOperationException(
+					installmentLockRepository.findLockedInstallmentIds(installmentIds));
 		}
 		return new Creation(submit(operation), true);
 	}
@@ -99,15 +102,15 @@ public class PortabilityOperationService {
 		try {
 			operation = transaction.execute(status -> {
 				var failed = get(operationId);
-				failed.retry();
-				events.publishEvent(new PortabilityOperationStatusChanged(operationId));
+				transitions.apply(failed, PortabilityOperation::retry);
 				return lock(operationRepository.saveAndFlush(failed));
 			});
 		} catch (OptimisticLockingFailureException e) {
 			// A concurrent retry of the same operation won: return its current state.
 			return new Creation(get(operationId), false);
 		} catch (DataIntegrityViolationException e) {
-			throw new InstallmentInOperationException(lockedAmong(get(operationId).getInstallmentIds()));
+			throw new InstallmentInOperationException(
+					installmentLockRepository.findLockedInstallmentIds(get(operationId).getInstallmentIds()));
 		}
 		return new Creation(submit(operation), true);
 	}
@@ -122,16 +125,10 @@ public class PortabilityOperationService {
 		if (!notEligible.isEmpty()) {
 			throw new InstallmentNotEligibleException(notEligible);
 		}
-		var inOperation = installmentIds.stream().filter(id -> schedule.get(id).inActiveOperation()).toList();
+		var inOperation = installmentIds.stream().filter(id -> schedule.get(id).lockedByOperation()).toList();
 		if (!inOperation.isEmpty()) {
 			throw new InstallmentInOperationException(inOperation);
 		}
-	}
-
-	private List<String> lockedAmong(List<String> installmentIds) {
-		return installmentLockRepository.findAllByInstallmentIdIn(installmentIds).stream()
-				.map(InstallmentLock::getInstallmentId)
-				.toList();
 	}
 
 	private PortabilityOperation lock(PortabilityOperation operation) {
@@ -148,16 +145,15 @@ public class PortabilityOperationService {
 		try {
 			protocol = centralConveniosGateway.submitPortability(toCentralRequest(operation));
 		} catch (CentralConveniosException e) {
-			transaction.executeWithoutResult(status -> {
-				get(operation.getId()).fail();
-				installmentLockRepository.deleteByOperationId(operation.getId());
-				events.publishEvent(new PortabilityOperationStatusChanged(operation.getId()));
-			});
+			log.warn("Submission of portability operation {} failed: {}", operation.getId(),
+					e.getClass().getSimpleName());
+			transaction.executeWithoutResult(status -> transitions.apply(get(operation.getId()),
+					PortabilityOperation::fail));
 			throw e;
 		}
 		return transaction.execute(status -> {
 			var submitted = get(operation.getId());
-			submitted.submitted(protocol);
+			submitted.markSubmitted(protocol);
 			return submitted;
 		});
 	}
