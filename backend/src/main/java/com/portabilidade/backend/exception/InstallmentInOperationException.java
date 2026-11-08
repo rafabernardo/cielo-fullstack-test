@@ -3,13 +3,14 @@ package com.portabilidade.backend.exception;
 import java.util.List;
 import java.util.UUID;
 
-public class InstallmentInOperationException extends RuntimeException {
+// Installments already held by another operation; subclasses say whether the holder is pending or confirmed.
+public abstract class InstallmentInOperationException extends RuntimeException {
 
 	private final List<String> installmentIds;
 	private final List<UUID> operationIds;
 
-	public InstallmentInOperationException(List<String> installmentIds, List<UUID> operationIds) {
-		super("Installments are already in a pending or confirmed portability operation.");
+	protected InstallmentInOperationException(String message, List<String> installmentIds, List<UUID> operationIds) {
+		super(message);
 		this.installmentIds = List.copyOf(installmentIds);
 		this.operationIds = List.copyOf(operationIds);
 	}

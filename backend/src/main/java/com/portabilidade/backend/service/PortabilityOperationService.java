@@ -2,6 +2,7 @@ package com.portabilidade.backend.service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -16,8 +17,11 @@ import com.portabilidade.backend.domain.DestinationAccount;
 import com.portabilidade.backend.domain.Installment;
 import com.portabilidade.backend.domain.InstallmentLock;
 import com.portabilidade.backend.domain.PortabilityOperation;
+import com.portabilidade.backend.domain.PortabilityOperationStatus;
 import com.portabilidade.backend.exception.CentralConveniosException;
+import com.portabilidade.backend.exception.InstallmentInConfirmedOperationException;
 import com.portabilidade.backend.exception.InstallmentInOperationException;
+import com.portabilidade.backend.exception.InstallmentInPendingOperationException;
 import com.portabilidade.backend.exception.InstallmentNotEligibleException;
 import com.portabilidade.backend.exception.PortabilityOperationNotFoundException;
 import com.portabilidade.backend.integration.centralconvenios.CentralConveniosGateway;
@@ -89,12 +93,27 @@ public class PortabilityOperationService {
 		}
 	}
 
-	// Lists the requested installments that are held, in request order, and the operations holding them.
+	// Lists the requested installments that are held, in request order, and the operations holding them. Confirmed
+	// holders win over pending ones: those installments can never be ported again.
 	private InstallmentInOperationException buildConflict(List<String> installmentIds) {
 		Map<String, UUID> holders = installmentLockRepository.findByInstallmentIdIn(installmentIds).stream()
 				.collect(Collectors.toMap(InstallmentLock::getInstallmentId, InstallmentLock::getOperationId));
+		var confirmed = operationRepository.findAllById(Set.copyOf(holders.values())).stream()
+				.filter(operation -> operation.getStatus() == PortabilityOperationStatus.CONFIRMED)
+				.map(PortabilityOperation::getId)
+				.collect(Collectors.toSet());
+		var heldByConfirmed = installmentIds.stream()
+				.filter(id -> holders.containsKey(id) && confirmed.contains(holders.get(id)))
+				.toList();
+		if (!heldByConfirmed.isEmpty()) {
+			return new InstallmentInConfirmedOperationException(heldByConfirmed, holdersOf(heldByConfirmed, holders));
+		}
 		var held = installmentIds.stream().filter(holders::containsKey).toList();
-		return new InstallmentInOperationException(held, held.stream().map(holders::get).distinct().toList());
+		return new InstallmentInPendingOperationException(held, holdersOf(held, holders));
+	}
+
+	private static List<UUID> holdersOf(List<String> installmentIds, Map<String, UUID> holders) {
+		return installmentIds.stream().map(holders::get).distinct().toList();
 	}
 
 	private PortabilityOperation lock(PortabilityOperation operation) {

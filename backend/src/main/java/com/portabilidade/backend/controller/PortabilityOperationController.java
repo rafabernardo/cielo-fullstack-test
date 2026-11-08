@@ -34,8 +34,9 @@ public class PortabilityOperationController {
 	@ApiResponse(responseCode = "202", description = "Operation submitted to the Central",
 			headers = @Header(name = HttpHeaders.LOCATION, description = "URL of the operation"))
 	@ApiResponse(responseCode = "400", description = "VALIDATION_ERROR: body missing, malformed or invalid")
-	@ApiResponse(responseCode = "409", description = "INSTALLMENT_IN_OPERATION: installments held by a PENDING or "
-			+ "CONFIRMED operation (a repeated request included), listed in installmentIds; operationIds says which")
+	@ApiResponse(responseCode = "409", description = "INSTALLMENT_IN_PENDING_OPERATION / "
+			+ "INSTALLMENT_IN_CONFIRMED_OPERATION: installments held by a PENDING or CONFIRMED operation (a repeated "
+			+ "request included), listed in installmentIds; operationIds says which. CONFIRMED wins when both apply")
 	@ApiResponse(responseCode = "422", description = "AUTHORIZATION_REQUIRED: no authorization registered for the "
 			+ "beneficiary; INSTALLMENT_NOT_ELIGIBLE: installments missing from the schedule or not OPEN, listed in "
 			+ "installmentIds")

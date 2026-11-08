@@ -225,7 +225,8 @@ class PortabilityOperationControllerTest {
 		var repeated = create(requestFor("P002", "P001"));
 
 		repeated.andExpect(status().isConflict())
-				.andExpect(jsonPath("$.code").value("INSTALLMENT_IN_OPERATION"))
+				.andExpect(jsonPath("$.code").value("INSTALLMENT_IN_PENDING_OPERATION"))
+				.andExpect(jsonPath("$.detail").value("Installments are already in a pending portability operation."))
 				.andExpect(jsonPath("$.installmentIds").value(contains("P002", "P001")))
 				.andExpect(jsonPath("$.operationIds").value(contains(firstId)));
 		assertThat(operationRepository.count()).isOne();
@@ -250,7 +251,7 @@ class PortabilityOperationControllerTest {
 				+ "\"destinationAccount\":{\"bankCode\":\"341\",\"branch\":\"0001\",\"accountNumber\":\"1\"}}");
 
 		result.andExpect(status().isConflict())
-				.andExpect(jsonPath("$.code").value("INSTALLMENT_IN_OPERATION"))
+				.andExpect(jsonPath("$.code").value("INSTALLMENT_IN_PENDING_OPERATION"))
 				.andExpect(jsonPath("$.operationIds").value(contains(firstId)));
 		assertThat(operationRepository.count()).isOne();
 	}
@@ -277,7 +278,23 @@ class PortabilityOperationControllerTest {
 		var result = create(requestFor("P001"));
 
 		result.andExpect(status().isConflict())
-				.andExpect(jsonPath("$.code").value("INSTALLMENT_IN_OPERATION"))
+				.andExpect(jsonPath("$.code").value("INSTALLMENT_IN_CONFIRMED_OPERATION"))
+				.andExpect(jsonPath("$.detail")
+						.value("Installments are already in a confirmed portability operation."))
+				.andExpect(jsonPath("$.operationIds").value(contains(confirmedId)));
+	}
+
+	@Test
+	void reportsOnlyConfirmedOperationWhenInstallmentsAreHeldByPendingAndConfirmedOperations() throws Exception {
+		var confirmedId = idOf(create(requestFor("P001")).andReturn());
+		centralAnswersStatus("{\"status\":\"CONFIRMADA\",\"motivoRejeicao\":null}");
+		create(requestFor("P002")).andExpect(status().isAccepted());
+
+		var result = create(requestFor("P002", "P001"));
+
+		result.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("INSTALLMENT_IN_CONFIRMED_OPERATION"))
+				.andExpect(jsonPath("$.installmentIds").value(contains("P001")))
 				.andExpect(jsonPath("$.operationIds").value(contains(confirmedId)));
 	}
 
@@ -335,6 +352,8 @@ class PortabilityOperationControllerTest {
 				.orElseThrow();
 		var refused = results.stream().filter(result -> result.getResponse().getStatus() == 409).findFirst()
 				.orElseThrow();
+		assertThat(JsonPath.<String>read(refused.getResponse().getContentAsString(), "$.code"))
+				.isEqualTo("INSTALLMENT_IN_PENDING_OPERATION");
 		assertThat(JsonPath.<List<String>>read(refused.getResponse().getContentAsString(), "$.operationIds"))
 				.containsExactly(idOf(created));
 		assertThat(operationRepository.count()).isOne();
@@ -348,7 +367,7 @@ class PortabilityOperationControllerTest {
 		var result = create(requestFor("P001", "P002"));
 
 		result.andExpect(status().isConflict())
-				.andExpect(jsonPath("$.code").value("INSTALLMENT_IN_OPERATION"))
+				.andExpect(jsonPath("$.code").value("INSTALLMENT_IN_PENDING_OPERATION"))
 				.andExpect(jsonPath("$.installmentIds").value(contains("P001")))
 				.andExpect(jsonPath("$.operationIds").value(contains(firstId)));
 		assertThat(operationRepository.count()).isOne();

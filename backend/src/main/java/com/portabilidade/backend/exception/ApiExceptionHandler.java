@@ -36,12 +36,14 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 		return body;
 	}
 
-	@ExceptionHandler(InstallmentInOperationException.class)
-	ProblemDetail handleInstallmentInOperation(InstallmentInOperationException e) {
-		var body = problem(HttpStatus.CONFLICT, e.getMessage(), "INSTALLMENT_IN_OPERATION");
-		body.setProperty("installmentIds", e.getInstallmentIds());
-		body.setProperty("operationIds", e.getOperationIds());
-		return body;
+	@ExceptionHandler(InstallmentInPendingOperationException.class)
+	ProblemDetail handleInstallmentInPendingOperation(InstallmentInPendingOperationException e) {
+		return conflict(e, "INSTALLMENT_IN_PENDING_OPERATION");
+	}
+
+	@ExceptionHandler(InstallmentInConfirmedOperationException.class)
+	ProblemDetail handleInstallmentInConfirmedOperation(InstallmentInConfirmedOperationException e) {
+		return conflict(e, "INSTALLMENT_IN_CONFIRMED_OPERATION");
 	}
 
 	@ExceptionHandler(PortabilityOperationNotFoundException.class)
@@ -95,6 +97,13 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
 	private String messageOf(FieldError error) {
 		return error.getDefaultMessage() == null ? "is invalid" : error.getDefaultMessage();
+	}
+
+	private static ProblemDetail conflict(InstallmentInOperationException e, String code) {
+		var body = problem(HttpStatus.CONFLICT, e.getMessage(), code);
+		body.setProperty("installmentIds", e.getInstallmentIds());
+		body.setProperty("operationIds", e.getOperationIds());
+		return body;
 	}
 
 	private static ProblemDetail problem(HttpStatus status, String detail, String code) {

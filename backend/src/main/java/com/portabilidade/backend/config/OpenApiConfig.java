@@ -54,7 +54,7 @@ public class OpenApiConfig {
 						.description("VALIDATION_ERROR only: invalid field -> message")
 						.example(Map.of("beneficiaryId", "must not be blank")))
 				.addProperty("installmentIds", new ArraySchema().items(new StringSchema())
-						.description("INSTALLMENT_NOT_ELIGIBLE and INSTALLMENT_IN_OPERATION only"))
+						.description("INSTALLMENT_NOT_ELIGIBLE and INSTALLMENT_IN_*_OPERATION only"))
 				.required(List.of("type", "title", "status", "code"));
 	}
 

@@ -115,7 +115,8 @@ Body: a [portability operation](#portability-operation).
 **Duplicates**
 
 An installment belongs to at most one `PENDING` or `CONFIRMED` operation, enforced by a unique constraint. Any request
-with an installment already held is refused with `409 INSTALLMENT_IN_OPERATION`: a repeated request (double click, retry
+with an installment already held is refused with `409 INSTALLMENT_IN_PENDING_OPERATION` or
+`409 INSTALLMENT_IN_CONFIRMED_OPERATION`, after the holder's status: a repeated request (double click, retry
 after a lost response), the same installments with another account, or a partial overlap. `operationIds` names the
 operations holding them, so the client can follow the existing operation. No `Idempotency-Key` is needed; one sent by an
 older client is ignored. Once an operation ends `REJECTED` or `FAILED`, its installments are free and a new request
@@ -126,7 +127,8 @@ creates a new operation.
 | Status | `code`                           | When                                                                                     |
 |--------|----------------------------------|------------------------------------------------------------------------------------------|
 | `400`  | `VALIDATION_ERROR`               | Body invalid or malformed                                                                |
-| `409`  | `INSTALLMENT_IN_OPERATION`       | Installments held by a `PENDING`/`CONFIRMED` operation; `installmentIds` lists them, `operationIds` the holders |
+| `409`  | `INSTALLMENT_IN_PENDING_OPERATION`   | Installments held by a `PENDING` operation; `installmentIds` lists them, `operationIds` the holders |
+| `409`  | `INSTALLMENT_IN_CONFIRMED_OPERATION` | Installments held by a `CONFIRMED` operation; wins over pending, listing only the confirmed ones   |
 | `422`  | `AUTHORIZATION_REQUIRED`         | No authorization registered for the beneficiary                                          |
 | `422`  | `INSTALLMENT_NOT_ELIGIBLE`       | Installments missing from the schedule or not `OPEN`; `installmentIds` lists them        |
 | `502`  | `CENTRAL_CONVENIOS_BAD_RESPONSE` | Central answered unexpectedly                                                            |
@@ -228,7 +230,8 @@ Every error is an RFC 7807 problem (`application/problem+json`) with a machine-r
 |--------|-----------------------------------|--------------------------------------|
 | `400`  | `VALIDATION_ERROR`                | `errors`: `{ field: message }` (only for invalid fields, not for malformed bodies) |
 | `404`  | `PORTABILITY_OPERATION_NOT_FOUND` |                                      |
-| `409`  | `INSTALLMENT_IN_OPERATION`        | `installmentIds`, `operationIds`     |
+| `409`  | `INSTALLMENT_IN_PENDING_OPERATION`   | `installmentIds`, `operationIds`  |
+| `409`  | `INSTALLMENT_IN_CONFIRMED_OPERATION` | `installmentIds`, `operationIds`  |
 | `422`  | `AUTHORIZATION_REQUIRED`          |                                      |
 | `422`  | `INSTALLMENT_NOT_ELIGIBLE`        | `installmentIds`                     |
 | `502`  | `CENTRAL_CONVENIOS_BAD_RESPONSE`  |                                      |
