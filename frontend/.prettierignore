@@ -1,0 +1,4 @@
+# Handlebars templates for Plop: Prettier mangles them.
+plop-templates/
+.omc/
+dist/
