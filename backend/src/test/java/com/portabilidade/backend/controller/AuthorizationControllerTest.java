@@ -1,6 +1,7 @@
 package com.portabilidade.backend.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -24,7 +25,7 @@ import com.portabilidade.backend.integration.centralconvenios.CentralConveniosSt
 import com.portabilidade.backend.integration.centralconvenios.CentralConveniosStub.ReceivedRequest;
 import com.portabilidade.backend.repository.AuthorizationRepository;
 
-// Exercises POST /api/authorizations end to end; only the Central de Convênios is faked, over real HTTP.
+// Exercises POST /api/authorizations and GET /api/beneficiaries/{id}/authorization end to end; only the Central de Convênios is faked, over real HTTP.
 @SpringBootTest
 @AutoConfigureMockMvc
 class AuthorizationControllerTest {
@@ -145,6 +146,21 @@ class AuthorizationControllerTest {
 		result.andExpect(status().isBadGateway())
 				.andExpect(jsonPath("$.code").value("CENTRAL_CONVENIOS_BAD_RESPONSE"));
 		assertThat(authorizationRepository.count()).isZero();
+	}
+
+	@Test
+	void reportsAuthorizedOnlyForBeneficiaryWithStoredAuthorization() throws Exception {
+		authorizationRepository.save(new Authorization("BEN001", "AUT-1"));
+
+		mockMvc.perform(get("/api/beneficiaries/BEN001/authorization"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.beneficiaryId").value("BEN001"))
+				.andExpect(jsonPath("$.authorized").value(true));
+		mockMvc.perform(get("/api/beneficiaries/BEN002/authorization"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.beneficiaryId").value("BEN002"))
+				.andExpect(jsonPath("$.authorized").value(false));
+		assertThat(CentralConveniosStub.lastRequest()).isNull();
 	}
 
 	private static RequestBuilder createAuthorization(String body) {

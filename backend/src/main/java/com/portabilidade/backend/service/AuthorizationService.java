@@ -23,4 +23,8 @@ public class AuthorizationService {
 		return authorizationRepository.save(new Authorization(beneficiaryId, centralAuthorizationId));
 	}
 
+	public boolean isAuthorized(String beneficiaryId) {
+		return authorizationRepository.existsByBeneficiaryId(beneficiaryId);
+	}
+
 }
