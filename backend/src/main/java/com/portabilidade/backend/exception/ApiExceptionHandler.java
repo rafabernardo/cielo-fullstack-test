@@ -24,6 +24,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 	private static final String CODE = "code";
 
+	@ExceptionHandler(AuthorizationRequiredException.class)
+	ProblemDetail handleAuthorizationRequired(AuthorizationRequiredException e) {
+		return problem(HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage(), "AUTHORIZATION_REQUIRED");
+	}
+
 	@ExceptionHandler(CentralConveniosUnavailableException.class)
 	ProblemDetail handleCentralUnavailable(CentralConveniosUnavailableException e) {
 		return problem(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage(), "CENTRAL_CONVENIOS_UNAVAILABLE");
