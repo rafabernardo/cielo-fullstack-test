@@ -43,6 +43,7 @@ public class OpenApiConfig {
 
 	private static Schema<?> problemSchema() {
 		return new ObjectSchema()
+				.required(List.of("type", "title", "status", "code"))
 				.addProperty("type", new StringSchema().example("about:blank"))
 				.addProperty("title", new StringSchema().example("Unprocessable Content"))
 				.addProperty("status", new IntegerSchema().example(422))
@@ -54,8 +55,7 @@ public class OpenApiConfig {
 						.description("VALIDATION_ERROR only: invalid field -> message")
 						.example(Map.of("beneficiaryId", "must not be blank")))
 				.addProperty("installmentIds", new ArraySchema().items(new StringSchema())
-						.description("INSTALLMENT_NOT_ELIGIBLE and INSTALLMENT_IN_*_OPERATION only"))
-				.required(List.of("type", "title", "status", "code"));
+						.description("INSTALLMENT_NOT_ELIGIBLE and INSTALLMENT_IN_*_OPERATION only"));
 	}
 
 }
