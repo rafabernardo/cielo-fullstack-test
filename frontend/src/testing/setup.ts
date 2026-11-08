@@ -7,5 +7,9 @@ import { server } from './server';
 globalThis.EventSource ??= EventSource as unknown as typeof globalThis.EventSource;
 
 beforeAll(() => server.listen({ onUnhandledFrame: 'error' }));
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  server.resetHandlers();
+  // Tests may put ?beneficiary= in the URL; start each one from a clean URL.
+  window.history.replaceState(null, '', '/');
+});
 afterAll(() => server.close());
