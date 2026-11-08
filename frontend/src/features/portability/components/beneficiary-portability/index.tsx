@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import styles from './beneficiary-portability.module.css';
-import { useOperation } from '@/features/portability/api/get-operation';
 import { useSchedule } from '@/features/portability/api/get-schedule';
 import { DestinationAccountForm } from '@/features/portability/components/destination-account-form';
 import { OperationTracker } from '@/features/portability/components/operation-tracker';
@@ -29,11 +28,6 @@ const Workspace = ({ beneficiaryId, resumeOperationId }: WorkspaceProps) => {
   );
   const schedule = useSchedule(beneficiaryId);
   const selection = useInstallmentSelection(schedule.data?.installments);
-  const tracked = useOperation(tracking?.operationId ?? null);
-
-  // Nothing new is requested while the followed operation is still waiting for the Central.
-  const isWaiting =
-    tracking !== null && !tracked.isError && (tracked.data?.status ?? 'PENDING') === 'PENDING';
 
   const follow = (operationId: string, notice?: string) => setTracking({ operationId, notice });
 
@@ -48,16 +42,18 @@ const Workspace = ({ beneficiaryId, resumeOperationId }: WorkspaceProps) => {
         beneficiaryId={beneficiaryId}
         selected={selection.selected}
         onToggle={selection.toggle}
-        disabled={isWaiting}
       >
         <DestinationAccountForm
           beneficiaryId={beneficiaryId}
           installmentIds={selection.selected}
-          onCreated={(operation) => follow(operation.id)}
+          onCreated={(operation) => {
+            // Its installments are held now; what is left can be requested right away.
+            selection.clear();
+            follow(operation.id);
+          }}
           onExistingOperation={(operationId) =>
             follow(operationId, 'Já existe uma solicitação em andamento para essas parcelas.')
           }
-          disabled={isWaiting}
         />
       </ScheduleSection>
       {tracking && (

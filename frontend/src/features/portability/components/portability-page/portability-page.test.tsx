@@ -29,6 +29,7 @@ const schedule = (beneficiaryId: string): Schedule => ({
       deductionDate: '2026-01-10',
       status: 'OPEN',
       eligible: true,
+      heldBy: null,
     },
   ],
 });
@@ -125,21 +126,21 @@ describe('PortabilityPage — beneficiary and opt-in', () => {
 });
 
 describe('PortabilityPage — schedule and selection', () => {
-  test('lists installments, blocks ineligible ones and totals the selection', async () => {
+  test('lists installments with their situation, blocks held ones and totals the selection', async () => {
+    const held = (installmentId: string, status: 'PENDING' | 'CONFIRMED') => ({
+      ...schedule('BEN001').installments[0],
+      installmentId,
+      eligible: false,
+      heldBy: { operationId: `op-${installmentId}`, status },
+    });
     server.use(
       http.get(SCHEDULE_URL, () =>
         HttpResponse.json({
           beneficiaryId: 'BEN001',
           installments: [
             ...schedule('BEN001').installments,
-            {
-              installmentId: 'P002',
-              agreementId: 'CONV01',
-              amount: 200.5,
-              deductionDate: '2026-02-10',
-              status: 'OPEN',
-              eligible: false,
-            },
+            held('P002', 'PENDING'),
+            held('P003', 'CONFIRMED'),
           ],
         } satisfies Schedule),
       ),
@@ -150,13 +151,16 @@ describe('PortabilityPage — schedule and selection', () => {
     const table = await findScheduleTable();
     const p001 = within(table).getByRole('row', { name: /P001/ });
     const p002 = within(table).getByRole('row', { name: /P002/ });
+    const p003 = within(table).getByRole('row', { name: /P003/ });
 
     expect(p001).toHaveTextContent('CONV01');
     expect(p001).toHaveTextContent('R$ 150,00');
     expect(p001).toHaveTextContent('10/01/2026');
-    expect(p001).toHaveTextContent('Aberta');
+    expect(p001).toHaveTextContent('Disponível');
     expect(screen.getByLabelText('Selecionar parcela P002')).toBeDisabled();
     expect(p002).toHaveTextContent('Em portabilidade');
+    expect(screen.getByLabelText('Selecionar parcela P003')).toBeDisabled();
+    expect(p003).toHaveTextContent('Portada');
     expect(table).toHaveTextContent('0 parcela(s) selecionada(s) · Total R$ 0,00');
 
     await user.click(screen.getByLabelText('Selecionar parcela P001'));
@@ -391,14 +395,57 @@ describe('PortabilityPage — following the operation', () => {
     );
 
     expect(await screen.findByText(/Aguardando a Central…/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Solicitar portabilidade' })).toBeDisabled();
-    expect(screen.getByLabelText('Selecionar parcela P001')).toBeDisabled();
+    // The requested installment leaves the selection; the schedule is read again.
+    expect(screen.getByLabelText('Selecionar parcela P001')).not.toBeChecked();
     expect(
       await screen.findByText('Portabilidade confirmada para as parcelas P001.'),
     ).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /Operação op-1/ })).toHaveTextContent('Confirmada');
-    await waitFor(() => expect(scheduleReads()).toBe(2));
+    // Read on load, after the request and after the outcome.
+    await waitFor(() => expect(scheduleReads()).toBe(3));
     expect(screen.getByRole('button', { name: 'Nova portabilidade' })).toBeInTheDocument();
+  });
+
+  test('lets other installments be requested while an operation is pending', async () => {
+    const requested: string[][] = [];
+    const installment = (installmentId: string) => ({
+      ...schedule('BEN001').installments[0],
+      installmentId,
+      eligible: !requested.flat().includes(installmentId),
+      heldBy: requested.flat().includes(installmentId)
+        ? { operationId: 'op-held', status: 'PENDING' as const }
+        : null,
+    });
+    window.history.replaceState(null, '', '/?beneficiary=BEN001');
+    server.use(
+      http.get(SCHEDULE_URL, () =>
+        HttpResponse.json({
+          beneficiaryId: 'BEN001',
+          installments: [installment('P001'), installment('P002')],
+        }),
+      ),
+      http.post('/api/portability-operations', async ({ request }) => {
+        const { installmentIds } = (await request.json()) as { installmentIds: string[] };
+        requested.push(installmentIds);
+        return HttpResponse.json(pending(`op-${requested.length}`), { status: 202 });
+      }),
+      streamStatus(),
+    );
+    renderWithProviders(<PortabilityPage />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByLabelText('Selecionar parcela P001'));
+    await user.type(screen.getByLabelText('Banco'), '341');
+    await user.type(screen.getByLabelText('Agência'), '0001');
+    await user.type(screen.getByLabelText('Conta'), '123456-7');
+    await user.click(screen.getByRole('button', { name: 'Solicitar portabilidade' }));
+    expect(await screen.findByRole('heading', { name: /Operação op-1/ })).toBeInTheDocument();
+
+    await waitFor(() => expect(screen.getByLabelText('Selecionar parcela P001')).toBeDisabled());
+    await user.click(screen.getByLabelText('Selecionar parcela P002'));
+    await user.click(screen.getByRole('button', { name: 'Solicitar portabilidade' }));
+
+    expect(await screen.findByRole('heading', { name: /Operação op-2/ })).toBeInTheDocument();
+    expect(requested).toEqual([['P001'], ['P002']]);
   });
 
   test('shows the rejection reason as a result, not as an error', async () => {

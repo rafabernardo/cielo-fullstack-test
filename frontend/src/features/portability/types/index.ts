@@ -14,6 +14,8 @@ export type Installment = {
   deductionDate: string;
   status: 'OPEN';
   eligible: boolean;
+  // The operation holding it, or null when free.
+  heldBy: { operationId: string; status: 'PENDING' | 'CONFIRMED' } | null;
 };
 
 export type Schedule = {

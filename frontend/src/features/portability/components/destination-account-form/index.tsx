@@ -22,8 +22,6 @@ type DestinationAccountFormProps = {
   onCreated: (operation: PortabilityOperation) => void;
   // The installments are already in a PENDING operation: follow that one instead.
   onExistingOperation: (operationId: string) => void;
-  // While an operation is being followed nothing new can be requested.
-  disabled?: boolean;
 };
 
 export const DestinationAccountForm = ({
@@ -31,7 +29,6 @@ export const DestinationAccountForm = ({
   installmentIds,
   onCreated,
   onExistingOperation,
-  disabled = false,
 }: DestinationAccountFormProps) => {
   const queryClient = useQueryClient();
   const operation = useCreateOperation();
@@ -80,7 +77,7 @@ export const DestinationAccountForm = ({
 
   return (
     <form className={styles.destinationAccountForm} onSubmit={submit} noValidate>
-      <fieldset disabled={disabled}>
+      <fieldset>
         <legend>Conta de destino</legend>
         <TextField
           label="Banco"
@@ -106,7 +103,7 @@ export const DestinationAccountForm = ({
       <button
         type="submit"
         className={styles.submit}
-        disabled={disabled || installmentIds.length === 0 || isSubmitting}
+        disabled={installmentIds.length === 0 || isSubmitting}
       >
         {isSubmitting ? 'Solicitando…' : 'Solicitar portabilidade'}
       </button>

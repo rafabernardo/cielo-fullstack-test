@@ -26,13 +26,27 @@
     color: var(--color-muted);
   }
 
-  & .tag {
-    margin-left: var(--space-2);
+  & .pending,
+  & .ported,
+  & .unavailable-tag {
     padding: 0 var(--space-2);
     border-radius: var(--radius-pill);
+    font-weight: 600;
+  }
+
+  & .pending {
     background: var(--color-warn-soft);
     color: var(--color-warn);
-    font-weight: 600;
+  }
+
+  & .ported {
+    background: var(--color-ok-soft);
+    color: var(--color-ok);
+  }
+
+  & .unavailable-tag {
+    background: var(--color-line);
+    color: var(--color-muted);
   }
 
   & tfoot td {

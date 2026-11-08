@@ -1,22 +1,26 @@
 import styles from './schedule-table.module.css';
 import type { Installment } from '@/features/portability/types';
 import { formatCurrency, formatDate } from '@/features/portability/utils/format';
+import {
+  SITUATION_LABELS,
+  situationOf,
+  type InstallmentSituation,
+} from '@/features/portability/utils/installment-situation';
 
-const STATUS_LABELS: Record<Installment['status'], string> = { OPEN: 'Aberta' };
+const SITUATION_TONES: Record<InstallmentSituation, string | undefined> = {
+  available: undefined,
+  'in-portability': styles.pending,
+  ported: styles.ported,
+  unavailable: styles.unavailableTag,
+};
 
 type ScheduleTableProps = {
   installments: Installment[];
   selected: string[];
   onToggle: (installmentId: string) => void;
-  disabled?: boolean;
 };
 
-export const ScheduleTable = ({
-  installments,
-  selected,
-  onToggle,
-  disabled = false,
-}: ScheduleTableProps) => {
+export const ScheduleTable = ({ installments, selected, onToggle }: ScheduleTableProps) => {
   if (installments.length === 0) {
     return <p className={styles.empty}>Nenhuma parcela futura para este beneficiário.</p>;
   }
@@ -37,19 +41,21 @@ export const ScheduleTable = ({
           <th scope="col">Convênio</th>
           <th scope="col">Valor</th>
           <th scope="col">Data de desconto</th>
-          <th scope="col">Status</th>
+          <th scope="col">Situação</th>
         </tr>
       </thead>
       <tbody>
-        {installments.map(
-          ({ installmentId, agreementId, amount, deductionDate, status, eligible }) => (
+        {installments.map((installment) => {
+          const { installmentId, agreementId, amount, deductionDate, eligible } = installment;
+          const situation = situationOf(installment);
+          return (
             <tr key={installmentId} className={eligible ? undefined : styles.unavailable}>
               <td>
                 <input
                   type="checkbox"
                   aria-label={`Selecionar parcela ${installmentId}`}
                   checked={selected.includes(installmentId)}
-                  disabled={disabled || !eligible}
+                  disabled={!eligible}
                   onChange={() => onToggle(installmentId)}
                 />
               </td>
@@ -58,12 +64,11 @@ export const ScheduleTable = ({
               <td>{formatCurrency(amount)}</td>
               <td>{formatDate(deductionDate)}</td>
               <td>
-                {STATUS_LABELS[status]}
-                {!eligible && <span className={styles.tag}>Em portabilidade</span>}
+                <span className={SITUATION_TONES[situation]}>{SITUATION_LABELS[situation]}</span>
               </td>
             </tr>
-          ),
-        )}
+          );
+        })}
       </tbody>
       <tfoot>
         <tr>
