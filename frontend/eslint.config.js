@@ -20,7 +20,7 @@ const features = fs.existsSync(featuresDir)
 const appLayer = ['./src/app', './src/app.tsx'];
 const shared = ['components', 'config', 'hooks', 'lib', 'testing', 'types', 'utils'];
 
-// Architecture rules from CLAUDE.md: no cross-feature imports, shared -> features -> app.
+// Architecture rules from AGENTS.md: no cross-feature imports, shared -> features -> app.
 const architectureZones = [
   // a feature may not import from any other feature
   ...features.map(({ name }) => ({
