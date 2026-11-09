@@ -418,6 +418,26 @@ describe('PortabilityPage — destination account and request', () => {
     ]);
   });
 
+  // BEN003 in the simulator: the backend stores the operation as FAILED before answering 503.
+  test('shows the failed operation in the history when the Central refuses the submission', async () => {
+    let refused = false;
+    server.use(
+      http.post(OPERATIONS_URL, () => {
+        refused = true;
+        return problem(503, 'CENTRAL_CONVENIOS_UNAVAILABLE');
+      }),
+      http.get(HISTORY_URL, () =>
+        historyPage(refused ? [{ ...operation('op-failed'), status: 'FAILED' }] : []),
+      ),
+    );
+    const user = await selectInstallment();
+
+    await fillAccount(user);
+    await user.click(requestButton());
+
+    expect(await findHistoryRow(/P001.*Falhou/)).toBeInTheDocument();
+  });
+
   // BEN_ERRO in the simulator: no agenda, and the Central refuses the submission.
   test('lets an empty schedule be submitted so the Central unavailability is shown', async () => {
     let body: unknown;

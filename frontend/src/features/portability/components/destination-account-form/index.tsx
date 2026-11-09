@@ -69,6 +69,8 @@ export const DestinationAccountForm = ({
       // Those installments are gone for good: show the schedule as it is now.
       void queryClient.invalidateQueries({ queryKey: scheduleKey(beneficiaryId) });
     }
+    // A refused submission (e.g. Central unavailable) leaves a FAILED operation in the history.
+    void queryClient.invalidateQueries({ queryKey: operationsKey(beneficiaryId) });
     showServerFieldErrors(error);
   };
 
