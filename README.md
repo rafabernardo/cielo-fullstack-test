@@ -262,6 +262,7 @@ Quase todas são do [mattpocock/skills](https://github.com/mattpocock/skills). A
 3. Uma tabela de eventos de status, se a operação ganhar mais estados (cancelada, expirada...). O evento `PortabilityOperationStatusChanged` já existe e serviria para alimentar essa tabela.
 4. HMAC no envio à Central, combinado com o simulador.
 5. Passar os dados da conta para uma modal (`<dialog>` nativo), com o resumo das parcelas escolhidas. Hoje o formulário aparece embaixo da agenda e empurra o histórico para baixo.
+6. Tratar beneficiário que não existe. Só percebi isso com o projeto já pronto, então optei por não mexer. O simulador aceita qualquer id: o opt-in dá certo e a agenda volta vazia, igual a um beneficiário sem parcelas, então a tela não mostra erro. E como deixei enviar pedido com agenda vazia (por causa do `BEN_ERRO`), dá até para confirmar uma portabilidade sem nenhuma parcela. O caminho seria o simulador responder 404 para id desconhecido e a tela mostrar "beneficiário não encontrado".
 
 ---
 
