@@ -10,7 +10,7 @@
 | Framework   | Spring Boot (Web MVC, Data JPA, Validation, RestClient)       |
 | Database    | H2 (in-memory for dev and tests), schema via JPA `ddl-auto`   |
 | HTTP client | Spring `RestClient`                                           |
-| Errors      | RFC 7807 `ProblemDetail` (native Spring)                      |
+| Errors      | RFC 9457 `ProblemDetail` (native Spring)                      |
 | Tests       | JUnit 5, Mockito, MockMvc, `MockRestServiceServer`            |
 | Build       | Maven Wrapper (`./mvnw`)                                      |
 
@@ -86,8 +86,8 @@ These rules are enforced by `ArchitectureTest` (ArchUnit) and run with `./mvnw t
 6. **Optimistic locking** (`@Version`) on entities that can be updated concurrently; on conflict, reload and return the current state.
 7. **Configuration** comes from `@ConfigurationProperties` records grouped by prefix. No `@Value` scattered across classes. No hard-coded URLs, timeouts, or secrets.
 8. **External calls always have timeouts** (connect and read), configured per gateway.
-9. **Audit trail** for stateful entities: each state transition appends an event (state, timestamp, detail) owned by the entity.
-10. **Message integrity** for outbound calls is added by a client interceptor (e.g. HMAC signature header), never inside services.
+9. **Status timestamps** for stateful entities: `createdAt` records the request and `updatedAt` the last change, set by the entity's own transition methods. This covers the history while an entity has a single transition (e.g. `PENDING` → final); once the lifecycle grows, record each transition as an event (state, timestamp, detail), fed by the existing status-changed event.
+10. **Message integrity** (not implemented; the simulator verifies no signature): if added, outbound calls are signed by a client interceptor (e.g. HMAC signature header), never inside services.
 
 ## Code Standards and Code Style
 
@@ -169,6 +169,6 @@ These rules are enforced by `ArchitectureTest` (ArchUnit) and run with `./mvnw t
   - `2xx` → contract record.
   - `5xx`, timeouts, connection refused (`ResourceAccessException`) → `*UnavailableException`, carrying the external error message when present.
   - Unexpected `4xx` or unparseable body → `*BadResponseException`.
-- A failed outbound call after a local write leaves the record in an explicit failure state with an event and releases what it held, so the client can safely send a new request.
+- A failed outbound call after a local write leaves the record in an explicit failure state (e.g. `FAILED`) and releases what it held, so the client can safely send a new request.
 - When a read depends on an external refresh that fails, return the last known state with a flag indicating it may be stale, instead of failing the whole request.
 - Integration failures are logged at `WARN` with correlation identifiers; never log secrets or sensitive personal/financial data.

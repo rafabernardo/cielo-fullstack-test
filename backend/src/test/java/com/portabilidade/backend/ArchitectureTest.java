@@ -44,7 +44,7 @@ class ArchitectureTest {
 			.orShould().dependOnClassesThat().resideInAPackage("org.springframework.web.client..");
 
 	@ArchTest
-	static final ArchRule domainIsFrameworkFree = noClasses()
+	static final ArchRule domainDoesNotDependOnSpring = noClasses()
 			.that().resideInAPackage("..domain..")
 			.should().dependOnClassesThat().resideInAPackage("org.springframework..");
 
