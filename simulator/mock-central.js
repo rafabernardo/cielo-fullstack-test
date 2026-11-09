@@ -13,6 +13,10 @@ const AGENDAS = {
   BEN002: [
     { parcelaId: 'P010', convenioId: 'CONV02', valor: 300.00, dataDesconto: '2026-01-15', status: 'ABERTA' },
   ],
+  BEN003: [
+    { parcelaId: 'P011', convenioId: 'CONV03', valor: 450.00, dataDesconto: '2026-01-20', status: 'ABERTA' },
+    { parcelaId: 'P012', convenioId: 'CONV03', valor: 450.00, dataDesconto: '2026-02-20', status: 'ABERTA' },
+  ],
 };
 
 const operacoes = new Map();
@@ -56,6 +60,12 @@ const server = http.createServer(async (req, res) => {
     if (body.beneficiarioId === 'BEN_ERRO') {
       return send(res, 503, {
         erro: 'Central indisponível no momento (simulado). Tente novamente.',
+      });
+    }
+
+    if (body.beneficiarioId === 'BEN003') {
+      return send(res, 500, {
+        erro: 'Erro interno do servidor (simulado). Tente novamente.',
       });
     }
 
