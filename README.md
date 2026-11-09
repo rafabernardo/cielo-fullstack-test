@@ -253,7 +253,7 @@ Quase todas são do [mattpocock/skills](https://github.com/mattpocock/skills). A
 ## Ficou de fora e próximos passos
 
 ### Ficou de fora
-- **HMAC na mensagem para a Central.** O simulador não valida assinatura, então só daria para fazer um lado e não teria como testar de verdade. <!-- ✍️ confirme o motivo -->
+- **HMAC na mensagem para a Central.** O simulador não valida assinatura, então só daria para fazer um lado e não teria como testar de verdade.
 - **Recuperar operação pendente sem protocolo.** A chamada à Central acontece depois de gravar a operação. Se o backend cair bem no meio, a operação fica pendente sem protocolo. Com H2 em memória isso não acontece, mas com banco persistente precisaria de um job para resolver.
 
 ### Próximos passos
