@@ -34,7 +34,7 @@ Solução do desafio fullstack (Java + React). O operador registra o opt-in do b
 
 ![Operação rejeitada](docs/screenshots/06-rejeitada.png)
 
-**Central fora do ar** (`BEN003`). A mensagem explica o que houve e oferece Tentar novamente.
+**Central fora do ar** (`BEN003`). A mensagem explica o que houve e oferece Tentar novamente. A operação que falhou já aparece no histórico e também pode ser reenviada por lá.
 
 ![Central indisponível](docs/screenshots/05-central-indisponivel.png)
 
