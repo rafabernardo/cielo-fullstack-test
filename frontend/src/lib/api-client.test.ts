@@ -6,7 +6,7 @@ import { server } from '@/testing/server';
 test('returns the JSON body of a successful response', async () => {
   server.use(http.get('/api/things', () => HttpResponse.json({ id: 1 })));
 
-  await expect(apiGet('/api/things')).resolves.toEqual({ id: 1 });
+  await expect(apiGet('/things')).resolves.toEqual({ id: 1 });
 });
 
 test('sends the body as JSON', async () => {
@@ -16,7 +16,7 @@ test('sends the body as JSON', async () => {
     ),
   );
 
-  await expect(apiPost('/api/things', { name: 'x' })).resolves.toEqual({ name: 'x' });
+  await expect(apiPost('/things', { name: 'x' })).resolves.toEqual({ name: 'x' });
 });
 
 test('throws an ApiError carrying the problem of an error response', async () => {
@@ -29,7 +29,7 @@ test('throws an ApiError carrying the problem of an error response', async () =>
     ),
   );
 
-  const error = await apiGet('/api/things').catch((e: unknown) => e);
+  const error = await apiGet('/things').catch((e: unknown) => e);
 
   expect(error).toBeInstanceOf(ApiError);
   expect(error).toMatchObject({
@@ -43,13 +43,13 @@ test('throws an ApiError carrying the problem of an error response', async () =>
 test('throws a NETWORK_ERROR when the backend cannot be reached', async () => {
   server.use(http.get('/api/things', () => HttpResponse.error()));
 
-  await expect(apiGet('/api/things')).rejects.toMatchObject({ status: 0, code: 'NETWORK_ERROR' });
+  await expect(apiGet('/things')).rejects.toMatchObject({ status: 0, code: 'NETWORK_ERROR' });
 });
 
 test('throws a NETWORK_ERROR when the proxy cannot reach the backend', async () => {
   server.use(http.get('/api/things', () => new HttpResponse('Bad Gateway', { status: 502 })));
 
-  await expect(apiGet('/api/things')).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+  await expect(apiGet('/things')).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
 });
 
 test('lets a cancelled request fail with the AbortError instead of a network error', async () => {
@@ -61,7 +61,7 @@ test('lets a cancelled request fail with the AbortError instead of a network err
   );
   const controller = new AbortController();
 
-  const request = apiGet('/api/things', { signal: controller.signal });
+  const request = apiGet('/things', { signal: controller.signal });
   controller.abort();
 
   await expect(request).rejects.toMatchObject({ name: 'AbortError' });

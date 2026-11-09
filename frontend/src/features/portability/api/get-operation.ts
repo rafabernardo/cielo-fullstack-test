@@ -3,7 +3,7 @@ import type { PortabilityOperation } from '@/features/portability/types';
 import { apiGet, type QueryContext } from '@/lib/api-client';
 
 export const getOperation = (id: string, context?: QueryContext): Promise<PortabilityOperation> =>
-  apiGet(`/api/portability-operations/${encodeURIComponent(id)}`, context);
+  apiGet(`/portability-operations/${encodeURIComponent(id)}`, context);
 
 export const operationKey = (id: string) => ['operation', id];
 

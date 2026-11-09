@@ -3,7 +3,7 @@ import type { Schedule } from '@/features/portability/types';
 import { apiGet, type QueryContext } from '@/lib/api-client';
 
 export const getSchedule = (beneficiaryId: string, context?: QueryContext): Promise<Schedule> =>
-  apiGet(`/api/beneficiaries/${encodeURIComponent(beneficiaryId)}/schedule`, context);
+  apiGet(`/beneficiaries/${encodeURIComponent(beneficiaryId)}/schedule`, context);
 
 export const scheduleKey = (beneficiaryId: string) => ['schedule', beneficiaryId];
 

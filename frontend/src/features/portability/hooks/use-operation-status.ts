@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { envs } from '@/config/env';
 import { operationKey, useOperation } from '@/features/portability/api/get-operation';
 import { operationsKey } from '@/features/portability/api/get-operations';
 import { scheduleKey } from '@/features/portability/api/get-schedule';
@@ -18,7 +19,9 @@ export const useOperationStatus = (id: string) => {
   useEffect(() => {
     if (isFinished) return;
 
-    const source = new EventSource(`/api/portability-operations/${encodeURIComponent(id)}/events`);
+    const source = new EventSource(
+      `${envs.VITE_API_URL}/portability-operations/${encodeURIComponent(id)}/events`,
+    );
     source.addEventListener('status', (event) => {
       const current: PortabilityOperation = JSON.parse(event.data);
       queryClient.setQueryData(operationKey(id), current);

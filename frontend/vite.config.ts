@@ -3,16 +3,18 @@ import react, { reactCompilerPreset } from '@vitejs/plugin-react';
 import babel from '@rolldown/plugin-babel';
 import path from 'node:path';
 import svgr from 'vite-plugin-svgr';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react(), svgr(), babel({ presets: [reactCompilerPreset()] })],
   css: { modules: { localsConvention: 'camelCaseOnly' } },
   resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
   server: {
     strictPort: true,
     // The backend has no CORS: the browser talks to it through this proxy.
-    proxy: { '/api': 'http://localhost:8080' },
+    proxy: {
+      '/api': loadEnv(mode, import.meta.dirname, '').API_PROXY_TARGET || 'http://localhost:8080',
+    },
     fs: {
       strict: true,
       deny: ['**/.*'],
@@ -22,6 +24,8 @@ export default defineConfig({
     environment: 'jsdom',
     // Globals let Testing Library clean up the DOM after each test on its own.
     globals: true,
+    // Fixed so tests never depend on a local .env; handlers are written against /api.
+    env: { VITE_API_URL: '/api' },
     setupFiles: ['./src/testing/setup.ts'],
   },
-});
+}));

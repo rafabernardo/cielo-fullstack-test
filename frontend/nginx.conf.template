@@ -1,0 +1,16 @@
+server {
+  listen 80;
+  root /usr/share/nginx/html;
+
+  # The backend has no CORS: the browser talks to it through this proxy, as with Vite's dev proxy.
+  location /api/ {
+    proxy_pass ${API_PROXY_TARGET};
+    # SSE (/events): forward each event as it arrives and outlive the backend's 60s stream timeout.
+    proxy_buffering off;
+    proxy_read_timeout 120s;
+  }
+
+  location / {
+    try_files $uri /index.html;
+  }
+}

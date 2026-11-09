@@ -12,7 +12,7 @@ export type CreateOperationInput = {
 };
 
 export const createOperation = (input: CreateOperationInput): Promise<PortabilityOperation> =>
-  apiPost('/api/portability-operations', input);
+  apiPost('/portability-operations', input);
 
 // The 202 body is the operation itself: cache it so following it needs no extra read. The schedule
 // (its installments are held now) and the history (it shows on top) are read again.

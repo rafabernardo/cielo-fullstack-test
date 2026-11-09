@@ -6,7 +6,7 @@ export const getAuthorization = (
   beneficiaryId: string,
   context?: QueryContext,
 ): Promise<AuthorizationStatus> =>
-  apiGet(`/api/beneficiaries/${encodeURIComponent(beneficiaryId)}/authorization`, context);
+  apiGet(`/beneficiaries/${encodeURIComponent(beneficiaryId)}/authorization`, context);
 
 export const authorizationKey = (beneficiaryId: string) => ['authorization', beneficiaryId];
 

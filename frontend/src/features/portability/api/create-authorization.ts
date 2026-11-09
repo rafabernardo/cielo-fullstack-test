@@ -4,7 +4,7 @@ import type { Authorization } from '@/features/portability/types';
 import { apiPost } from '@/lib/api-client';
 
 export const createAuthorization = (beneficiaryId: string): Promise<Authorization> =>
-  apiPost('/api/authorizations', { beneficiaryId });
+  apiPost('/authorizations', { beneficiaryId });
 
 // Once authorized, the beneficiary is known to be authorized: no need to ask again.
 export const useCreateAuthorization = (beneficiaryId: string) => {

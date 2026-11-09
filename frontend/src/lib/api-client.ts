@@ -1,3 +1,5 @@
+import { envs } from '@/config/env';
+
 // RFC 7807 problem returned by the backend for every error (see backend/docs/API.md).
 export type Problem = {
   code?: string;
@@ -32,7 +34,7 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   let response: Response;
   try {
     // Absolute URL: fetch outside the browser (tests) rejects relative ones.
-    response = await fetch(new URL(path, window.location.origin), init);
+    response = await fetch(new URL(`${envs.VITE_API_URL}${path}`, window.location.origin), init);
   } catch (error) {
     // A cancelled request is not a failure: let the AbortError through for the caller to ignore.
     if (init?.signal?.aborted) throw error;

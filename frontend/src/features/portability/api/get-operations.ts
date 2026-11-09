@@ -11,7 +11,7 @@ export const getOperations = (
   context?: QueryContext,
 ): Promise<Page<PortabilityOperation>> =>
   apiGet(
-    `/api/beneficiaries/${encodeURIComponent(beneficiaryId)}/portability-operations?page=${page}&size=${PAGE_SIZE}`,
+    `/beneficiaries/${encodeURIComponent(beneficiaryId)}/portability-operations?page=${page}&size=${PAGE_SIZE}`,
     context,
   );
 
