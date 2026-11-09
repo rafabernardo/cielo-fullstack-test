@@ -1,0 +1,35 @@
+services:
+  central:
+    image: node:22-alpine
+    command: node /app/mock-central.js
+    volumes:
+      - ./simulator/mock-central.js:/app/mock-central.js:ro
+
+  backend:
+    build: ./backend
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      # Inside the Docker network the Central is reached by service name, not localhost.
+      CENTRAL_CONVENIOS_BASE_URL: http://central:4000
+      SERVER_PORT: 8080
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    depends_on:
+      - central
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: /api
+    env_file:
+      - path: ./frontend/.env
+        required: false
+    environment:
+      API_PROXY_TARGET: http://backend:8080
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      - backend
