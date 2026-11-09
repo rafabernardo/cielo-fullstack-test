@@ -265,7 +265,7 @@ PENDING ──▶ CONFIRMED
 
 ## Errors
 
-Every error is an RFC 7807 problem (`application/problem+json`) with a machine-readable `code`:
+Every error is an RFC 9457 problem (`application/problem+json`) with a machine-readable `code`:
 
 ```json
 {

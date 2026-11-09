@@ -1,6 +1,6 @@
 import { envs } from '@/config/env';
 
-// RFC 7807 problem returned by the backend for every error (see backend/docs/API.md).
+// RFC 9457 problem returned by the backend for every error (see backend/docs/API.md).
 export type Problem = {
   code?: string;
   detail?: string;
