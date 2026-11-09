@@ -11,7 +11,7 @@
 | Database    | H2 (in-memory for dev and tests), schema via JPA `ddl-auto`   |
 | HTTP client | Spring `RestClient`                                           |
 | Errors      | RFC 9457 `ProblemDetail` (native Spring)                      |
-| Tests       | JUnit 5, Mockito, MockMvc, `MockRestServiceServer`            |
+| Tests       | JUnit 5, MockMvc, `@SpringBootTest`, ArchUnit, fake Central over real HTTP |
 | Build       | Maven Wrapper (`./mvnw`)                                      |
 
 ### Architecture
@@ -46,8 +46,9 @@ src/main/java/<base-package>
 
 src/test/java/<base-package>
 ├── controller/              MockMvc / @SpringBootTest flow tests
-├── service/                 unit tests with mocked gateways/repositories
-└── integration/<external>/  gateway tests with MockRestServiceServer
+├── service/                 @SpringBootTest tests of scheduled/background flows
+└── integration/<external>/  fake external system over real HTTP (e.g. CentralConveniosStub), shared by all
+                             API tests so timeouts and dropped connections are exercised for real
 ```
 
 Test packages mirror main packages. One top-level class per file.
